@@ -4,15 +4,19 @@ from pydantic import BaseModel
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
+from contextlib import asynccontextmanager
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import sys
 import os
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.insert(0, project_root)
 
 from models import Base, Device, DeviceStatus
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
 HEARTBEAT_TIMEOUT = 30
+CHECK_INTERVAL = 10
 
 engine = create_engine(
     DATABASE_URL, connect_args={"check_same_thread": False}
@@ -21,7 +25,50 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="IoT Management Platform")
+scheduler = AsyncIOScheduler()
+
+def check_all_devices_status():
+    db = SessionLocal()
+    try:
+        devices = db.query(Device).filter(
+            Device.status == DeviceStatus.ONLINE
+        ).all()
+        
+        now = datetime.utcnow()
+        updated_count = 0
+        
+        for device in devices:
+            if device.last_heartbeat is None:
+                continue
+            
+            time_since_heartbeat = (now - device.last_heartbeat).total_seconds()
+            
+            if time_since_heartbeat > HEARTBEAT_TIMEOUT:
+                device.status = DeviceStatus.OFFLINE
+                updated_count += 1
+        
+        if updated_count > 0:
+            db.commit()
+            print(f"[Scheduler] Updated {updated_count} devices to OFFLINE status")
+    except Exception as e:
+        print(f"[Scheduler] Error checking devices: {e}")
+    finally:
+        db.close()
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    scheduler.add_job(
+        check_all_devices_status,
+        'interval',
+        seconds=CHECK_INTERVAL
+    )
+    scheduler.start()
+    print(f"[Scheduler] Started - checking devices every {CHECK_INTERVAL} seconds")
+    yield
+    scheduler.shutdown()
+    print("[Scheduler] Stopped")
+
+app = FastAPI(title="IoT Management Platform", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,

@@ -2,7 +2,8 @@ import uvicorn
 import sys
 import os
 
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+project_root = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, project_root)
 
 if __name__ == "__main__":
     uvicorn.run(
