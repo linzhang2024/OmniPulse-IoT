@@ -249,6 +249,73 @@
         .error-message.visible {
             display: block;
         }
+        
+        .control-btn {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        .control-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(255, 107, 107, 0.4);
+        }
+        
+        .control-btn:disabled {
+            background: #546e7a;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .control-btn:disabled:hover {
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .control-btn.success {
+            background: linear-gradient(135deg, #4caf50, #45a049);
+        }
+        
+        .control-btn.loading {
+            background: linear-gradient(135deg, #78909c, #546e7a);
+        }
+        
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            left: 50%;
+            transform: translateX(-50%) translateY(100px);
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 12px 24px;
+            border-radius: 8px;
+            font-size: 14px;
+            z-index: 1000;
+            transition: transform 0.3s ease;
+            max-width: 400px;
+            text-align: center;
+        }
+        
+        .toast.show {
+            transform: translateX(-50%) translateY(0);
+        }
+        
+        .toast.success {
+            border-left: 4px solid #4caf50;
+        }
+        
+        .toast.error {
+            border-left: 4px solid #f44336;
+        }
     </style>
 </head>
 <body>
@@ -279,6 +346,8 @@
         
         <div id="devices-container" class="devices-grid" style="display: none;"></div>
     </main>
+    
+    <div id="toast" class="toast"></div>
     
     <script>
         const API_URL = '/devices';
@@ -345,6 +414,7 @@
             
             const statusClass = isOnline ? 'online' : 'offline';
             const statusText = isOnline ? '在线' : '离线';
+            const btnDisabled = isOnline ? '' : 'disabled';
             
             let sensorHtml = '';
             if (device.latest_payload && Object.keys(device.latest_payload).length > 0) {
@@ -366,7 +436,7 @@
             }
             
             return `
-                <div class="device-card ${statusClass}">
+                <div class="device-card ${statusClass}" data-device-id="${device.device_id}">
                     <div class="device-header">
                         <div class="device-info">
                             <h3>设备 ${device.device_id.substring(0, 8)}</h3>
@@ -382,7 +452,9 @@
                     
                     <div class="device-footer">
                         <span class="model-badge">${device.model}</span>
-                        <span>数据时间: ${formatDateTime(device.latest_data_time)}</span>
+                        <button class="control-btn" data-device-id="${device.device_id}" ${btnDisabled}>
+                            远程关机
+                        </button>
                     </div>
                 </div>
             `;
@@ -423,6 +495,81 @@
             errorElement.classList.add('visible');
         }
         
+        function showToast(message, type = 'success') {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.className = `toast ${type} show`;
+            
+            setTimeout(() => {
+                toast.classList.remove('show');
+            }, 3000);
+        }
+        
+        async function controlDevice(deviceId, command, value) {
+            try {
+                const response = await fetch(`/devices/control/${deviceId}`, {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        command: command,
+                        value: value
+                    })
+                });
+                
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.detail || `HTTP 错误: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                return { success: true, data: result };
+            } catch (error) {
+                return { success: false, error: error.message };
+            }
+        }
+        
+        async function handleShutdownClick(event) {
+            const button = event.target.closest('.control-btn');
+            if (!button || button.disabled) return;
+            
+            const deviceId = button.dataset.deviceId;
+            
+            const originalText = button.textContent;
+            button.disabled = true;
+            button.textContent = '发送中...';
+            button.classList.add('loading');
+            
+            const result = await controlDevice(deviceId, 'shutdown', 'now');
+            
+            if (result.success) {
+                button.classList.remove('loading');
+                button.classList.add('success');
+                button.textContent = '已发送';
+                showToast(`设备 ${deviceId.substring(0, 8)} 关机指令已发送，等待设备响应...`, 'success');
+                
+                setTimeout(() => {
+                    button.classList.remove('success');
+                    button.textContent = originalText;
+                    button.disabled = false;
+                }, 2000);
+            } else {
+                button.classList.remove('loading');
+                button.textContent = originalText;
+                button.disabled = false;
+                showToast(`发送失败: ${result.error}`, 'error');
+            }
+        }
+        
+        function bindControlEvents() {
+            document.addEventListener('click', (e) => {
+                if (e.target.classList.contains('control-btn')) {
+                    handleShutdownClick(e);
+                }
+            });
+        }
+        
         async function fetchDevices() {
             try {
                 const response = await fetch(API_URL);
@@ -438,6 +585,7 @@
         }
         
         function init() {
+            bindControlEvents();
             fetchDevices();
             setInterval(fetchDevices, REFRESH_INTERVAL);
         }
