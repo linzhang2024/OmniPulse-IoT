@@ -1,14 +1,17 @@
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, desc
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import os
+import uuid
 
-from .models import Base, Device, DeviceStatus
+from .models import Base, Device, DeviceStatus, DeviceData
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
 HEARTBEAT_TIMEOUT = 30
@@ -74,6 +77,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
+@app.get("/")
+async def index():
+    return FileResponse("templates/index.html")
+
 def get_db():
     db = SessionLocal()
     try:
@@ -89,6 +98,10 @@ class HeartbeatResponse(BaseModel):
     device_id: str
     status: str
     last_heartbeat: datetime
+
+class DeviceDataReport(BaseModel):
+    device_id: str
+    payload: dict
 
 @app.post("/devices/register")
 def register_device(device_data: DeviceRegister, db: Session = Depends(get_db)):
@@ -145,6 +158,46 @@ def device_heartbeat(device_id: str, db: Session = Depends(get_db)):
         last_heartbeat=device.last_heartbeat
     )
 
+@app.post("/devices/data")
+def report_device_data(data_report: DeviceDataReport, db: Session = Depends(get_db)):
+    device = db.query(Device).filter(
+        Device.device_id == data_report.device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found. Please register the device first."
+        )
+    
+    new_data = DeviceData(
+        id=str(uuid.uuid4()),
+        device_id=data_report.device_id,
+        payload=data_report.payload,
+        recorded_at=datetime.utcnow()
+    )
+    db.add(new_data)
+    
+    now = datetime.utcnow()
+    device.last_heartbeat = now
+    device.status = DeviceStatus.ONLINE
+    db.commit()
+    db.refresh(new_data)
+    
+    return {
+        "message": "Data reported successfully",
+        "data_id": new_data.id,
+        "device_id": new_data.device_id,
+        "payload": new_data.payload,
+        "recorded_at": new_data.recorded_at
+    }
+
+def get_latest_device_data(device_id: str, db: Session):
+    latest_data = db.query(DeviceData).filter(
+        DeviceData.device_id == device_id
+    ).order_by(desc(DeviceData.recorded_at)).first()
+    return latest_data
+
 @app.get("/devices/{device_id}")
 def get_device(device_id: str, db: Session = Depends(get_db)):
     device = db.query(Device).filter(
@@ -159,12 +212,16 @@ def get_device(device_id: str, db: Session = Depends(get_db)):
     
     check_device_status(device)
     
+    latest_data = get_latest_device_data(device_id, db)
+    
     return {
         "device_id": device.device_id,
         "model": device.model,
         "status": device.status.value,
         "last_heartbeat": device.last_heartbeat,
-        "created_at": device.created_at
+        "created_at": device.created_at,
+        "latest_payload": latest_data.payload if latest_data else None,
+        "latest_data_time": latest_data.recorded_at if latest_data else None
     }
 
 @app.get("/devices")
@@ -174,11 +231,14 @@ def get_all_devices(db: Session = Depends(get_db)):
     result = []
     for device in devices:
         check_device_status(device)
+        latest_data = get_latest_device_data(device.device_id, db)
         result.append({
             "device_id": device.device_id,
             "model": device.model,
             "status": device.status.value,
-            "last_heartbeat": device.last_heartbeat
+            "last_heartbeat": device.last_heartbeat,
+            "latest_payload": latest_data.payload if latest_data else None,
+            "latest_data_time": latest_data.recorded_at if latest_data else None
         })
     
     db.commit()
