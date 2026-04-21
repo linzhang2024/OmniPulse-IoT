@@ -6,13 +6,9 @@ from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
-import sys
 import os
 
-project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, project_root)
-
-from models import Base, Device, DeviceStatus
+from .models import Base, Device, DeviceStatus
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
 HEARTBEAT_TIMEOUT = 30
