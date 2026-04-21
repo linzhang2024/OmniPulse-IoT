@@ -288,13 +288,6 @@ python migrate_commands_v2.py
 4. 推送到分支 (`git push origin feature/AmazingFeature`)
 5. 创建 Pull Request
 
-## 📄 许可证
-
-MIT License - 详见 LICENSE 文件
-
-## 🆘 问题反馈
-
-如有问题或建议，请提交 Issue。
 
 ---
 
