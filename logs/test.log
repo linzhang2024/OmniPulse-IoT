@@ -1,0 +1,10 @@
+2023-10-01 10:00:01 INFO  User registration - Phone: 13812345678, ID: 110101199001011234
+2023-10-01 10:05:23 DEBUG  Login attempt from 192.168.1.100 - Phone: 13987654321
+2023-10-01 10:10:45 ERROR  Payment failed for user ID: 310101198505056789
+2023-10-01 10:15:30 INFO  User profile updated - Phone: 15611112222, Old phone: 15633334444
+2023-10-01 10:20:15 WARNING  Multiple login attempts detected for phone 18955556666
+2023-10-01 10:25:00 INFO  New user created with ID card: 440101199212315678 (18位)
+2023-10-01 10:30:22 DEBUG  Legacy user with 15位 ID: 110101800101123
+2023-10-01 10:35:47 INFO  Transaction completed - User: 13577778888, Amount: ¥1000.00
+2023-10-01 10:40:10 WARNING  Suspicious activity from phone 18699990000 and ID 320101198808081234
+2023-10-01 10:45:33 INFO  System maintenance complete, no issues reported

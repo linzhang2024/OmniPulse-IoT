@@ -1,0 +1,13 @@
+{
+  "processing_time": "2026-04-21 16:00:43",
+  "input_directory": "D:\\workspace\\Trae\\OmniPulse-IoT\\logs",
+  "output_directory": "D:\\workspace\\Trae\\OmniPulse-IoT\\dist",
+  "total_files_processed": 1,
+  "total_sensitive_information_found": 12,
+  "files_detail": [
+    {
+      "filename": "test.log",
+      "sensitive_count": 12
+    }
+  ]
+}
