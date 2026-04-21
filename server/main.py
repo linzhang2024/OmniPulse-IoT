@@ -26,29 +26,61 @@ Base.metadata.create_all(bind=engine)
 
 scheduler = AsyncIOScheduler()
 
+TEMPERATURE_THRESHOLD = 50
+
 def check_all_devices_status():
     db = SessionLocal()
     try:
-        devices = db.query(Device).filter(
-            Device.status == DeviceStatus.ONLINE
-        ).all()
+        devices = db.query(Device).all()
         
         now = datetime.utcnow()
         updated_count = 0
+        alert_count = 0
         
         for device in devices:
-            if device.last_heartbeat is None:
-                continue
+            if device.last_heartbeat is not None:
+                time_since_heartbeat = (now - device.last_heartbeat).total_seconds()
+                
+                if device.status == DeviceStatus.ONLINE and time_since_heartbeat > HEARTBEAT_TIMEOUT:
+                    device.status = DeviceStatus.OFFLINE
+                    updated_count += 1
             
-            time_since_heartbeat = (now - device.last_heartbeat).total_seconds()
-            
-            if time_since_heartbeat > HEARTBEAT_TIMEOUT:
-                device.status = DeviceStatus.OFFLINE
-                updated_count += 1
+            latest_data = get_latest_device_data(device.device_id, db)
+            if latest_data and latest_data.payload:
+                payload = latest_data.payload
+                temperature = None
+                
+                if 'temperature' in payload:
+                    temperature = payload['temperature']
+                elif 'temp' in payload:
+                    temperature = payload['temp']
+                
+                if temperature is not None and isinstance(temperature, (int, float)):
+                    if temperature > TEMPERATURE_THRESHOLD:
+                        if device.pending_commands is None:
+                            device.pending_commands = []
+                        
+                        existing_alert = any(
+                            cmd.get('command') == 'alert_buzzer' 
+                            for cmd in device.pending_commands
+                        )
+                        
+                        if not existing_alert:
+                            device.pending_commands.append({
+                                "command": "alert_buzzer",
+                                "value": "on",
+                                "timestamp": datetime.utcnow().isoformat(),
+                                "reason": f"Temperature exceeded threshold: {temperature}°C"
+                            })
+                            alert_count += 1
+                            print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C exceeds {TEMPERATURE_THRESHOLD}°C - Triggering alert_buzzer")
         
-        if updated_count > 0:
+        if updated_count > 0 or alert_count > 0:
             db.commit()
-            print(f"[Scheduler] Updated {updated_count} devices to OFFLINE status")
+            if updated_count > 0:
+                print(f"[Scheduler] Updated {updated_count} devices to OFFLINE status")
+            if alert_count > 0:
+                print(f"[Scheduler] Triggered {alert_count} temperature alerts")
     except Exception as e:
         print(f"[Scheduler] Error checking devices: {e}")
     finally:
@@ -94,10 +126,15 @@ class DeviceRegister(BaseModel):
     device_id: str
     model: str
 
+class ControlCommand(BaseModel):
+    command: str
+    value: str
+
 class HeartbeatResponse(BaseModel):
     device_id: str
     status: str
     last_heartbeat: datetime
+    pending_commands: list = []
 
 class DeviceDataReport(BaseModel):
     device_id: str
@@ -149,14 +186,49 @@ def device_heartbeat(device_id: str, db: Session = Depends(get_db)):
     now = datetime.utcnow()
     device.last_heartbeat = now
     device.status = DeviceStatus.ONLINE
+    
+    pending_commands = device.pending_commands or []
+    device.pending_commands = []
+    
     db.commit()
     db.refresh(device)
     
     return HeartbeatResponse(
         device_id=device.device_id,
         status=device.status.value,
-        last_heartbeat=device.last_heartbeat
+        last_heartbeat=device.last_heartbeat,
+        pending_commands=pending_commands
     )
+
+@app.post("/devices/control/{device_id}")
+def control_device(device_id: str, command: ControlCommand, db: Session = Depends(get_db)):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found."
+        )
+    
+    if device.pending_commands is None:
+        device.pending_commands = []
+    
+    device.pending_commands.append({
+        "command": command.command,
+        "value": command.value,
+        "timestamp": datetime.utcnow().isoformat()
+    })
+    db.commit()
+    
+    return {
+        "message": "Command queued successfully",
+        "device_id": device.device_id,
+        "command": command.command,
+        "value": command.value,
+        "queued_at": datetime.utcnow().isoformat()
+    }
 
 @app.post("/devices/data")
 def report_device_data(data_report: DeviceDataReport, db: Session = Depends(get_db)):

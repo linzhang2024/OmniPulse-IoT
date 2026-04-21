@@ -17,6 +17,7 @@ class Device(Base):
     model = Column(String(64), nullable=False)
     status = Column(Enum(DeviceStatus), default=DeviceStatus.OFFLINE)
     last_heartbeat = Column(DateTime, nullable=True)
+    pending_commands = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
