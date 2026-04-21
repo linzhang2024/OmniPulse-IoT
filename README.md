@@ -387,20 +387,48 @@ OmniPulse-IoT/
 | CHECK_INTERVAL | 10 秒 | 设备状态检查间隔 |
 | COMMAND_TTL_SECONDS | 600 秒 (10 分钟) | 指令有效期 |
 | TEMPERATURE_THRESHOLD | 50°C | 温度告警阈值 |
+| ALERT_CONSECUTIVE_THRESHOLD | 3 次 | 连续超标次数阈值（告警平滑引擎） |
 | SIGNATURE_TIMESTAMP_TOLERANCE | 60 秒 | 签名时间戳容差（防重放攻击） |
 
 ## 🚨 告警机制
 
-### 自动温度告警
-- **触发条件**：设备上报温度超过 50°C
+### 自动温度告警（告警平滑引擎）
+
+为了防止传感器抖动造成的误报，平台采用了**告警平滑引擎**：
+
+- **触发条件**：连续 3 次数据上报温度超过阈值（默认 50°C）
 - **自动指令**：`alert_buzzer = on`
 - **去重逻辑**：同一设备不会重复添加待处理的告警指令
+- **复位逻辑**：温度恢复正常后，连续超标计数自动清零
+
+### 工作流程
+
+```
+第1次超温 → 计数=1 → 不触发告警
+第2次超温 → 计数=2 → 不触发告警
+第3次超温 → 计数=3 → 触发 alert_buzzer 指令
+温度恢复 → 计数=0 → 状态复位
+```
 
 ### 日志示例
+
+**连续超温但未触发（前2次）：**
 ```
-[Alert] Device sensor_001: Temperature 55.5°C exceeds 50°C - Triggering alert_buzzer (id=xxx)
+[Alert] Device sensor_001: Temperature 52.0°C exceeds threshold, consecutive count: 1/3
+[Alert] Device sensor_001: Temperature 53.5°C exceeds threshold, consecutive count: 2/3
+```
+
+**连续3次超温触发告警：**
+```
+[Alert] Device sensor_001: Temperature 55.5°C exceeds threshold, consecutive count: 3/3
+[Alert] Device sensor_001: Triggering alert_buzzer after 3 consecutive alerts (id=xxx)
 [Command] Command xxx delivered to device
 [Command] Command xxx acknowledged by device
+```
+
+**温度恢复正常：**
+```
+[Alert] Device sensor_001: Temperature 45.0°C normalized, resetting consecutive alert count
 ```
 
 ## 📝 数据库迁移
@@ -416,6 +444,9 @@ python migrate_commands_v2.py
 
 # 3. 添加设备认证 secret_key 字段（新增设备认证功能）
 python migrate_add_secret_key.py
+
+# 4. 添加连续告警计数字段（新增告警平滑引擎）
+python migrate_add_alert_count.py
 ```
 
 ## 🤝 贡献指南

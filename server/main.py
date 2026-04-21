@@ -32,6 +32,7 @@ Base.metadata.create_all(bind=engine)
 scheduler = AsyncIOScheduler()
 
 TEMPERATURE_THRESHOLD = 50
+ALERT_CONSECUTIVE_THRESHOLD = 3
 
 def check_all_devices_status():
     db = SessionLocal()
@@ -62,24 +63,35 @@ def check_all_devices_status():
                 
                 if temperature is not None and isinstance(temperature, (int, float)):
                     if temperature > TEMPERATURE_THRESHOLD:
-                        if device.pending_commands is None:
-                            device.pending_commands = []
+                        if device.consecutive_alert_count is None:
+                            device.consecutive_alert_count = 0
+                        device.consecutive_alert_count += 1
                         
-                        existing_pending_alert = any(
-                            cmd.get('command') == 'alert_buzzer' and
-                            cmd.get('status') in [CommandStatus.PENDING.value, CommandStatus.DELIVERED.value]
-                            for cmd in device.pending_commands
-                        )
+                        print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C exceeds threshold, consecutive count: {device.consecutive_alert_count}/{ALERT_CONSECUTIVE_THRESHOLD}")
                         
-                        if not existing_pending_alert:
-                            alert_cmd = create_command(
-                                "alert_buzzer",
-                                "on",
-                                reason=f"Temperature exceeded threshold: {temperature}°C"
+                        if device.consecutive_alert_count >= ALERT_CONSECUTIVE_THRESHOLD:
+                            if device.pending_commands is None:
+                                device.pending_commands = []
+                            
+                            existing_pending_alert = any(
+                                cmd.get('command') == 'alert_buzzer' and
+                                cmd.get('status') in [CommandStatus.PENDING.value, CommandStatus.DELIVERED.value]
+                                for cmd in device.pending_commands
                             )
-                            device.pending_commands.append(alert_cmd)
-                            alert_count += 1
-                            print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C exceeds {TEMPERATURE_THRESHOLD}°C - Triggering alert_buzzer (id={alert_cmd['id']})")
+                            
+                            if not existing_pending_alert:
+                                alert_cmd = create_command(
+                                    "alert_buzzer",
+                                    "on",
+                                    reason=f"Temperature exceeded threshold {ALERT_CONSECUTIVE_THRESHOLD} consecutive times, latest: {temperature}°C"
+                                )
+                                device.pending_commands.append(alert_cmd)
+                                alert_count += 1
+                                print(f"[Alert] Device {device.device_id}: Triggering alert_buzzer after {ALERT_CONSECUTIVE_THRESHOLD} consecutive alerts (id={alert_cmd['id']})")
+                    else:
+                        if device.consecutive_alert_count is None or device.consecutive_alert_count > 0:
+                            print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C normalized, resetting consecutive alert count")
+                            device.consecutive_alert_count = 0
         
         if updated_count > 0 or alert_count > 0:
             db.commit()
