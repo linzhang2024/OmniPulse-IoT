@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, Depends, HTTPException, Header
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -10,6 +10,9 @@ from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import os
 import uuid
+import hashlib
+import secrets
+import string
 
 from .models import Base, Device, DeviceStatus, DeviceData, CommandStatus
 
@@ -17,6 +20,7 @@ DATABASE_URL = "sqlite:///./iot_devices.db"
 HEARTBEAT_TIMEOUT = 30
 CHECK_INTERVAL = 10
 COMMAND_TTL_SECONDS = 600
+SIGNATURE_TIMESTAMP_TOLERANCE = 60
 
 engine = create_engine(
     DATABASE_URL, connect_args={"check_same_thread": False}
@@ -117,6 +121,32 @@ app.mount("/static", StaticFiles(directory="static"), name="static")
 async def index():
     return FileResponse("templates/index.html")
 
+def generate_secret_key(length: int = 32) -> str:
+    alphabet = string.ascii_letters + string.digits
+    return ''.join(secrets.choice(alphabet) for _ in range(length))
+
+def compute_signature(device_id: str, timestamp: str, secret_key: str) -> str:
+    raw_string = f"{device_id}{timestamp}{secret_key}"
+    return hashlib.md5(raw_string.encode('utf-8')).hexdigest().lower()
+
+def verify_signature(device_id: str, timestamp: str, signature: str, secret_key: str) -> tuple[bool, str]:
+    expected_signature = compute_signature(device_id, timestamp, secret_key)
+    
+    if signature.lower() != expected_signature:
+        return False, f"Invalid signature. Expected: {expected_signature}"
+    
+    try:
+        timestamp_int = int(timestamp)
+        current_timestamp = int(datetime.utcnow().timestamp())
+        time_diff = abs(current_timestamp - timestamp_int)
+        
+        if time_diff > SIGNATURE_TIMESTAMP_TOLERANCE:
+            return False, f"Timestamp expired. Time difference: {time_diff}s, tolerance: {SIGNATURE_TIMESTAMP_TOLERANCE}s"
+    except ValueError:
+        return False, "Invalid timestamp format"
+    
+    return True, "Signature valid"
+
 def get_db():
     db = SessionLocal()
     try:
@@ -158,11 +188,14 @@ def register_device(device_data: DeviceRegister, db: Session = Depends(get_db)):
             "message": "Device already registered",
             "device_id": existing_device.device_id,
             "model": existing_device.model,
-            "status": existing_device.status.value
+            "status": existing_device.status.value,
+            "secret_key": existing_device.secret_key
         }
     
+    secret_key = generate_secret_key()
     new_device = Device(
         device_id=device_data.device_id,
+        secret_key=secret_key,
         model=device_data.model,
         status=DeviceStatus.OFFLINE,
         last_heartbeat=None
@@ -175,7 +208,8 @@ def register_device(device_data: DeviceRegister, db: Session = Depends(get_db)):
         "message": "Device registered successfully",
         "device_id": new_device.device_id,
         "model": new_device.model,
-        "status": new_device.status.value
+        "status": new_device.status.value,
+        "secret_key": new_device.secret_key
     }
 
 def create_command(command: str, value: str, reason: str = None) -> dict:
@@ -262,8 +296,16 @@ def process_heartbeat_commands(
 def device_heartbeat(
     device_id: str,
     request: HeartbeatRequest = None,
+    x_signature: str = Header(None, alias="X-Signature"),
+    x_timestamp: str = Header(None, alias="X-Timestamp"),
     db: Session = Depends(get_db)
 ):
+    if not x_signature or not x_timestamp:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing authentication headers: X-Signature and X-Timestamp are required"
+        )
+    
     device = db.query(Device).filter(
         Device.device_id == device_id
     ).first()
@@ -272,6 +314,13 @@ def device_heartbeat(
         raise HTTPException(
             status_code=404,
             detail="Device not found. Please register the device first."
+        )
+    
+    is_valid, error_msg = verify_signature(device_id, x_timestamp, x_signature, device.secret_key)
+    if not is_valid:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Authentication failed: {error_msg}"
         )
     
     if request is None:
@@ -332,7 +381,18 @@ def control_device(device_id: str, command: ControlCommand, db: Session = Depend
     }
 
 @app.post("/devices/data")
-def report_device_data(data_report: DeviceDataReport, db: Session = Depends(get_db)):
+def report_device_data(
+    data_report: DeviceDataReport,
+    x_signature: str = Header(None, alias="X-Signature"),
+    x_timestamp: str = Header(None, alias="X-Timestamp"),
+    db: Session = Depends(get_db)
+):
+    if not x_signature or not x_timestamp:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing authentication headers: X-Signature and X-Timestamp are required"
+        )
+    
     device = db.query(Device).filter(
         Device.device_id == data_report.device_id
     ).first()
@@ -341,6 +401,13 @@ def report_device_data(data_report: DeviceDataReport, db: Session = Depends(get_
         raise HTTPException(
             status_code=404,
             detail="Device not found. Please register the device first."
+        )
+    
+    is_valid, error_msg = verify_signature(data_report.device_id, x_timestamp, x_signature, device.secret_key)
+    if not is_valid:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Authentication failed: {error_msg}"
         )
     
     new_data = DeviceData(
