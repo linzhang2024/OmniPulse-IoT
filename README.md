@@ -58,6 +58,63 @@ python server.py
 - 监控大屏：`http://localhost:8000`
 - API 文档：`http://localhost:8000/docs`
 
+## 🔐 设备认证机制
+
+为了保障 IoT 平台的安全性，设备发送请求时需要进行签名认证。
+
+### 认证流程
+
+1. **设备注册**：设备首次注册时，服务器会返回一个 `secret_key`
+2. **请求签名**：设备发送心跳或数据上报时，需要在 Header 中携带签名
+3. **签名校验**：服务器校验签名和时间戳，确保请求的合法性
+
+### 签名计算规则
+
+```
+签名 = MD5(device_id + timestamp + secret_key)
+```
+
+- `device_id`: 设备唯一标识
+- `timestamp`: 当前 Unix 时间戳（秒）
+- `secret_key`: 设备注册时获取的密钥
+
+### 请求 Header 要求
+
+| Header | 说明 |
+|--------|------|
+| `X-Signature` | 签名值（MD5 结果，小写） |
+| `X-Timestamp` | Unix 时间戳（秒） |
+
+### 安全机制
+
+- **签名校验**：确保请求来自持有正确密钥的设备
+- **时间戳校验**：时间戳与服务器时间差超过 60 秒的请求将被拒绝（防重放攻击）
+
+### Python 签名示例
+
+```python
+import hashlib
+import time
+
+def compute_signature(device_id: str, secret_key: str) -> tuple[str, int]:
+    timestamp = int(time.time())
+    raw_string = f"{device_id}{timestamp}{secret_key}"
+    signature = hashlib.md5(raw_string.encode('utf-8')).hexdigest().lower()
+    return signature, timestamp
+
+# 使用示例
+device_id = "sensor_001"
+secret_key = "abc123xyz789"
+signature, timestamp = compute_signature(device_id, secret_key)
+
+# 请求 Header
+headers = {
+    "Content-Type": "application/json",
+    "X-Signature": signature,
+    "X-Timestamp": str(timestamp)
+}
+```
+
 ## 📡 API 接口
 
 ### 设备管理
@@ -73,10 +130,25 @@ Content-Type: application/json
 }
 ```
 
+**响应示例**：
+```json
+{
+  "message": "Device registered successfully",
+  "device_id": "sensor_001",
+  "model": "TemperatureSensor_v2",
+  "status": "offline",
+  "secret_key": "aB3kLmN9pQrStUvWxYz1234567890Ab"
+}
+```
+
+> **重要**：请妥善保存返回的 `secret_key`，后续所有请求都需要使用此密钥计算签名。
+
 #### 发送心跳（支持 Ack 确认）
 ```http
 POST /devices/heartbeat/{device_id}
 Content-Type: application/json
+X-Signature: 5f4dcc3b5aa765d61d8327deb882cf99
+X-Timestamp: 1713685800
 
 {
   "executed_commands": ["cmd-uuid-1", "cmd-uuid-2"]
@@ -106,6 +178,8 @@ Content-Type: application/json
 ```http
 POST /devices/data
 Content-Type: application/json
+X-Signature: 5f4dcc3b5aa765d61d8327deb882cf99
+X-Timestamp: 1713685800
 
 {
   "device_id": "sensor_001",
@@ -169,19 +243,61 @@ GET /devices/{device_id}
 ```python
 import requests
 import time
+import hashlib
 
 SERVER_URL = "http://localhost:8000"
 DEVICE_ID = "my_device_001"
+SECRET_KEY = "your_secret_key_here"  # 从注册响应中获取
 
 executed_commands = []
 
-def send_heartbeat():
-    global executed_commands
+def compute_signature(device_id: str, secret_key: str) -> dict:
+    timestamp = int(time.time())
+    raw_string = f"{device_id}{timestamp}{secret_key}"
+    signature = hashlib.md5(raw_string.encode('utf-8')).hexdigest().lower()
+    return {
+        "X-Signature": signature,
+        "X-Timestamp": str(timestamp),
+        "Content-Type": "application/json"
+    }
+
+def register_device():
+    global SECRET_KEY
     try:
         response = requests.post(
-            f"{SERVER_URL}/devices/heartbeat/{DEVICE_ID}",
-            json={"executed_commands": executed_commands}
+            f"{SERVER_URL}/devices/register",
+            json={
+                "device_id": DEVICE_ID,
+                "model": "TemperatureSensor_v1"
+            },
+            headers={"Content-Type": "application/json"}
         )
+        data = response.json()
+        SECRET_KEY = data.get("secret_key")
+        print(f"设备注册成功，Secret Key: {SECRET_KEY}")
+        return SECRET_KEY
+    except Exception as e:
+        print(f"设备注册失败: {e}")
+        return None
+
+def send_heartbeat():
+    global executed_commands
+    if not SECRET_KEY:
+        print("请先注册设备")
+        return
+    
+    try:
+        headers = compute_signature(DEVICE_ID, SECRET_KEY)
+        response = requests.post(
+            f"{SERVER_URL}/devices/heartbeat/{DEVICE_ID}",
+            json={"executed_commands": executed_commands},
+            headers=headers
+        )
+        
+        if response.status_code != 200:
+            print(f"心跳发送失败: {response.text}")
+            return
+        
         data = response.json()
         
         # 处理待执行指令
@@ -206,7 +322,12 @@ def send_heartbeat():
         print(f"心跳发送失败: {e}")
 
 def report_data():
+    if not SECRET_KEY:
+        print("请先注册设备")
+        return
+    
     try:
+        headers = compute_signature(DEVICE_ID, SECRET_KEY)
         response = requests.post(
             f"{SERVER_URL}/devices/data",
             json={
@@ -215,10 +336,22 @@ def report_data():
                     "temperature": 25.5,
                     "humidity": 60
                 }
-            }
+            },
+            headers=headers
         )
+        
+        if response.status_code != 200:
+            print(f"数据上报失败: {response.text}")
+            
     except Exception as e:
         print(f"数据上报失败: {e}")
+
+def execute_device_command(command: str, value: str):
+    print(f"执行设备指令: {command} = {value}")
+
+# 初始化：先注册设备
+if not SECRET_KEY:
+    register_device()
 
 # 主循环
 while True:
@@ -242,7 +375,8 @@ OmniPulse-IoT/
 ├── requirements.txt      # Python 依赖
 ├── server.py             # 启动入口
 ├── migrate_add_pending_commands.py  # 数据库迁移脚本
-└── migrate_commands_v2.py           # 指令格式迁移脚本
+├── migrate_commands_v2.py           # 指令格式迁移脚本
+└── migrate_add_secret_key.py        # 设备认证密钥迁移脚本
 ```
 
 ## 🔧 配置参数
@@ -253,6 +387,7 @@ OmniPulse-IoT/
 | CHECK_INTERVAL | 10 秒 | 设备状态检查间隔 |
 | COMMAND_TTL_SECONDS | 600 秒 (10 分钟) | 指令有效期 |
 | TEMPERATURE_THRESHOLD | 50°C | 温度告警阈值 |
+| SIGNATURE_TIMESTAMP_TOLERANCE | 60 秒 | 签名时间戳容差（防重放攻击） |
 
 ## 🚨 告警机制
 
@@ -278,6 +413,9 @@ python migrate_add_pending_commands.py
 
 # 2. 转换旧格式指令（从 v1 升级到 v2）
 python migrate_commands_v2.py
+
+# 3. 添加设备认证 secret_key 字段（新增设备认证功能）
+python migrate_add_secret_key.py
 ```
 
 ## 🤝 贡献指南
