@@ -11,11 +11,12 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 import os
 import uuid
 
-from .models import Base, Device, DeviceStatus, DeviceData
+from .models import Base, Device, DeviceStatus, DeviceData, CommandStatus
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
 HEARTBEAT_TIMEOUT = 30
 CHECK_INTERVAL = 10
+COMMAND_TTL_SECONDS = 600
 
 engine = create_engine(
     DATABASE_URL, connect_args={"check_same_thread": False}
@@ -60,20 +61,21 @@ def check_all_devices_status():
                         if device.pending_commands is None:
                             device.pending_commands = []
                         
-                        existing_alert = any(
-                            cmd.get('command') == 'alert_buzzer' 
+                        existing_pending_alert = any(
+                            cmd.get('command') == 'alert_buzzer' and
+                            cmd.get('status') in [CommandStatus.PENDING.value, CommandStatus.DELIVERED.value]
                             for cmd in device.pending_commands
                         )
                         
-                        if not existing_alert:
-                            device.pending_commands.append({
-                                "command": "alert_buzzer",
-                                "value": "on",
-                                "timestamp": datetime.utcnow().isoformat(),
-                                "reason": f"Temperature exceeded threshold: {temperature}°C"
-                            })
+                        if not existing_pending_alert:
+                            alert_cmd = create_command(
+                                "alert_buzzer",
+                                "on",
+                                reason=f"Temperature exceeded threshold: {temperature}°C"
+                            )
+                            device.pending_commands.append(alert_cmd)
                             alert_count += 1
-                            print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C exceeds {TEMPERATURE_THRESHOLD}°C - Triggering alert_buzzer")
+                            print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C exceeds {TEMPERATURE_THRESHOLD}°C - Triggering alert_buzzer (id={alert_cmd['id']})")
         
         if updated_count > 0 or alert_count > 0:
             db.commit()
@@ -130,11 +132,16 @@ class ControlCommand(BaseModel):
     command: str
     value: str
 
+class HeartbeatRequest(BaseModel):
+    executed_commands: list = []
+
 class HeartbeatResponse(BaseModel):
     device_id: str
     status: str
     last_heartbeat: datetime
     pending_commands: list = []
+    acknowledged_count: int = 0
+    expired_count: int = 0
 
 class DeviceDataReport(BaseModel):
     device_id: str
@@ -171,8 +178,92 @@ def register_device(device_data: DeviceRegister, db: Session = Depends(get_db)):
         "status": new_device.status.value
     }
 
+def create_command(command: str, value: str, reason: str = None) -> dict:
+    return {
+        "id": str(uuid.uuid4()),
+        "command": command,
+        "value": value,
+        "status": CommandStatus.PENDING.value,
+        "created_at": datetime.utcnow().isoformat(),
+        "delivered_at": None,
+        "reason": reason
+    }
+
+def is_command_expired(cmd: dict, now: datetime) -> bool:
+    if cmd.get("status") == CommandStatus.EXPIRED.value:
+        return True
+    
+    created_at_str = cmd.get("created_at")
+    if not created_at_str:
+        return False
+    
+    try:
+        created_at = datetime.fromisoformat(created_at_str)
+        time_since_created = (now - created_at).total_seconds()
+        return time_since_created > COMMAND_TTL_SECONDS
+    except (ValueError, TypeError):
+        return False
+
+def process_heartbeat_commands(
+    device: Device,
+    executed_commands: list,
+    now: datetime
+) -> tuple:
+    if device.pending_commands is None:
+        device.pending_commands = []
+    
+    commands = device.pending_commands
+    acknowledged_count = 0
+    expired_count = 0
+    commands_to_deliver = []
+    
+    executed_ids = set()
+    for cmd_id in executed_commands:
+        if isinstance(cmd_id, str):
+            executed_ids.add(cmd_id)
+        elif isinstance(cmd_id, dict) and "id" in cmd_id:
+            executed_ids.add(cmd_id["id"])
+    
+    updated_commands = []
+    for cmd in commands:
+        cmd_id = cmd.get("id")
+        
+        if cmd_id in executed_ids:
+            acknowledged_count += 1
+            print(f"[Command] Command {cmd_id} acknowledged by device")
+            continue
+        
+        if is_command_expired(cmd, now):
+            if cmd.get("status") != CommandStatus.EXPIRED.value:
+                cmd["status"] = CommandStatus.EXPIRED.value
+                expired_count += 1
+                print(f"[Command] Command {cmd_id} expired (TTL: {COMMAND_TTL_SECONDS}s)")
+            updated_commands.append(cmd)
+            continue
+        
+        if cmd.get("status") == CommandStatus.PENDING.value:
+            cmd["status"] = CommandStatus.DELIVERED.value
+            cmd["delivered_at"] = now.isoformat()
+            commands_to_deliver.append({
+                "id": cmd["id"],
+                "command": cmd["command"],
+                "value": cmd["value"],
+                "created_at": cmd["created_at"]
+            })
+            updated_commands.append(cmd)
+        elif cmd.get("status") == CommandStatus.DELIVERED.value:
+            updated_commands.append(cmd)
+    
+    device.pending_commands = updated_commands
+    
+    return commands_to_deliver, acknowledged_count, expired_count
+
 @app.post("/devices/heartbeat/{device_id}")
-def device_heartbeat(device_id: str, db: Session = Depends(get_db)):
+def device_heartbeat(
+    device_id: str,
+    request: HeartbeatRequest = None,
+    db: Session = Depends(get_db)
+):
     device = db.query(Device).filter(
         Device.device_id == device_id
     ).first()
@@ -183,12 +274,18 @@ def device_heartbeat(device_id: str, db: Session = Depends(get_db)):
             detail="Device not found. Please register the device first."
         )
     
+    if request is None:
+        request = HeartbeatRequest()
+    
     now = datetime.utcnow()
     device.last_heartbeat = now
     device.status = DeviceStatus.ONLINE
     
-    pending_commands = device.pending_commands or []
-    device.pending_commands = []
+    commands_to_deliver, acknowledged_count, expired_count = process_heartbeat_commands(
+        device,
+        request.executed_commands,
+        now
+    )
     
     db.commit()
     db.refresh(device)
@@ -197,7 +294,9 @@ def device_heartbeat(device_id: str, db: Session = Depends(get_db)):
         device_id=device.device_id,
         status=device.status.value,
         last_heartbeat=device.last_heartbeat,
-        pending_commands=pending_commands
+        pending_commands=commands_to_deliver,
+        acknowledged_count=acknowledged_count,
+        expired_count=expired_count
     )
 
 @app.post("/devices/control/{device_id}")
@@ -215,19 +314,21 @@ def control_device(device_id: str, command: ControlCommand, db: Session = Depend
     if device.pending_commands is None:
         device.pending_commands = []
     
-    device.pending_commands.append({
-        "command": command.command,
-        "value": command.value,
-        "timestamp": datetime.utcnow().isoformat()
-    })
+    new_cmd = create_command(command.command, command.value)
+    device.pending_commands.append(new_cmd)
     db.commit()
+    
+    print(f"[Control] Command queued for device {device_id}: {command.command}={command.value}, id={new_cmd['id']}")
     
     return {
         "message": "Command queued successfully",
         "device_id": device.device_id,
+        "command_id": new_cmd["id"],
         "command": command.command,
         "value": command.value,
-        "queued_at": datetime.utcnow().isoformat()
+        "status": new_cmd["status"],
+        "queued_at": new_cmd["created_at"],
+        "ttl_seconds": COMMAND_TTL_SECONDS
     }
 
 @app.post("/devices/data")
