@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, String, DateTime, Enum, ForeignKey, JSON
+from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey, JSON
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 import enum
@@ -24,6 +24,7 @@ class Device(Base):
     model = Column(String(64), nullable=False)
     status = Column(Enum(DeviceStatus), default=DeviceStatus.OFFLINE)
     last_heartbeat = Column(DateTime, nullable=True)
+    consecutive_alert_count = Column(Integer, default=0)
     pending_commands = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
