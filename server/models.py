@@ -10,6 +10,12 @@ class DeviceStatus(enum.Enum):
     ONLINE = "online"
     OFFLINE = "offline"
 
+class CommandStatus(enum.Enum):
+    PENDING = "pending"
+    DELIVERED = "delivered"
+    SUCCESS = "success"
+    EXPIRED = "expired"
+
 class Device(Base):
     __tablename__ = "devices"
 
