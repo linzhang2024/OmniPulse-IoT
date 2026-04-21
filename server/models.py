@@ -20,6 +20,7 @@ class Device(Base):
     __tablename__ = "devices"
 
     device_id = Column(String(64), primary_key=True, index=True)
+    secret_key = Column(String(64), nullable=False, index=True)
     model = Column(String(64), nullable=False)
     status = Column(Enum(DeviceStatus), default=DeviceStatus.OFFLINE)
     last_heartbeat = Column(DateTime, nullable=True)
