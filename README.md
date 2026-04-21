@@ -1,2 +1,301 @@
 # OmniPulse-IoT
-轻量级的工业/家居物联网设备管理平台。它旨在解决海量异构设备（如温湿度传感器、智能开关、工业网关）的状态监控与远程控制问题。  该系统通过统一的 RESTful API 接收设备上报的数据，具备实时健康检查、异常预警、设备分组管理以及历史轨迹回溯等核心功能。
+
+轻量级的工业/家居物联网设备管理平台，支持海量异构设备的状态监控与远程控制。
+
+## ✨ 功能特性
+
+### 📊 设备监控
+- **实时状态追踪**：设备心跳机制，30秒无响应自动标记离线
+- **数据上报**：统一 RESTful API 接收传感器数据
+- **监控大屏**：Web 实时展示设备状态和传感器数据
+- **自动告警**：温度超过 50°C 自动触发告警指令
+
+### 🎮 远程控制
+- **指令下发**：`POST /devices/control/{device_id}` 接口
+- **异步响应**：指令存入队列，设备下次心跳时下发
+- **Ack 确认机制**：设备可上报已执行指令，确保可靠执行
+- **TTL 有效期**：指令 10 分钟自动过期，避免无效下发
+
+### 🔧 指令生命周期
+
+```
+创建指令 → [PENDING] → 心跳下发 → [DELIVERED] → 设备确认 → [执行成功]
+                    ↓
+                超过 10 分钟
+                    ↓
+                [EXPIRED] (保留记录但不再下发)
+```
+
+## 🛠️ 技术栈
+
+| 组件 | 技术 |
+|------|------|
+| 后端框架 | FastAPI |
+| 数据库 | SQLite + SQLAlchemy |
+| 定时任务 | APScheduler |
+| 前端 | 原生 HTML + JavaScript |
+| 数据格式 | JSON |
+
+## 📦 安装部署
+
+### 环境要求
+- Python 3.8+
+- pip
+
+### 安装依赖
+```bash
+pip install -r requirements.txt
+```
+
+### 启动服务
+```bash
+python server.py
+```
+
+服务默认运行在 `http://localhost:8000`
+
+### 访问地址
+- 监控大屏：`http://localhost:8000`
+- API 文档：`http://localhost:8000/docs`
+
+## 📡 API 接口
+
+### 设备管理
+
+#### 注册设备
+```http
+POST /devices/register
+Content-Type: application/json
+
+{
+  "device_id": "sensor_001",
+  "model": "TemperatureSensor_v2"
+}
+```
+
+#### 发送心跳（支持 Ack 确认）
+```http
+POST /devices/heartbeat/{device_id}
+Content-Type: application/json
+
+{
+  "executed_commands": ["cmd-uuid-1", "cmd-uuid-2"]
+}
+```
+
+**响应示例**：
+```json
+{
+  "device_id": "sensor_001",
+  "status": "online",
+  "last_heartbeat": "2026-04-21T10:30:00",
+  "pending_commands": [
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "command": "toggle_switch",
+      "value": "on",
+      "created_at": "2026-04-21T10:29:00"
+    }
+  ],
+  "acknowledged_count": 2,
+  "expired_count": 0
+}
+```
+
+#### 上报数据
+```http
+POST /devices/data
+Content-Type: application/json
+
+{
+  "device_id": "sensor_001",
+  "payload": {
+    "temperature": 25.5,
+    "humidity": 60,
+    "battery": 85
+  }
+}
+```
+
+### 控制接口
+
+#### 下发控制指令
+```http
+POST /devices/control/{device_id}
+Content-Type: application/json
+
+{
+  "command": "toggle_switch",
+  "value": "on"
+}
+```
+
+**响应示例**：
+```json
+{
+  "message": "Command queued successfully",
+  "device_id": "device_001",
+  "command_id": "550e8400-e29b-41d4-a716-446655440000",
+  "command": "toggle_switch",
+  "value": "on",
+  "status": "pending",
+  "queued_at": "2026-04-21T10:30:00",
+  "ttl_seconds": 600
+}
+```
+
+#### 获取设备列表
+```http
+GET /devices
+```
+
+#### 获取单个设备信息
+```http
+GET /devices/{device_id}
+```
+
+## 📋 指令状态说明
+
+| 状态 | 值 | 说明 |
+|------|-----|------|
+| PENDING | `pending` | 指令已创建，等待下发 |
+| DELIVERED | `delivered` | 指令已下发给设备，等待确认 |
+| SUCCESS | `success` | 设备已确认执行 |
+| EXPIRED | `expired` | 超过 10 分钟未下发，已过期 |
+
+## 🎯 设备端集成示例
+
+### Python 设备端示例
+```python
+import requests
+import time
+
+SERVER_URL = "http://localhost:8000"
+DEVICE_ID = "my_device_001"
+
+executed_commands = []
+
+def send_heartbeat():
+    global executed_commands
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/devices/heartbeat/{DEVICE_ID}",
+            json={"executed_commands": executed_commands}
+        )
+        data = response.json()
+        
+        # 处理待执行指令
+        for cmd in data["pending_commands"]:
+            cmd_id = cmd["id"]
+            command = cmd["command"]
+            value = cmd["value"]
+            
+            print(f"执行指令: {command} = {value}")
+            
+            # 模拟执行指令
+            execute_device_command(command, value)
+            
+            # 标记为已执行，下次心跳确认
+            executed_commands.append(cmd_id)
+        
+        # 清空已确认的列表（服务器已收到）
+        if data["acknowledged_count"] > 0:
+            executed_commands = []
+            
+    except Exception as e:
+        print(f"心跳发送失败: {e}")
+
+def report_data():
+    try:
+        response = requests.post(
+            f"{SERVER_URL}/devices/data",
+            json={
+                "device_id": DEVICE_ID,
+                "payload": {
+                    "temperature": 25.5,
+                    "humidity": 60
+                }
+            }
+        )
+    except Exception as e:
+        print(f"数据上报失败: {e}")
+
+# 主循环
+while True:
+    send_heartbeat()
+    report_data()
+    time.sleep(5)  # 每 5 秒上报一次
+```
+
+## 📁 项目结构
+
+```
+OmniPulse-IoT/
+├── server/
+│   ├── __init__.py
+│   ├── main.py           # FastAPI 主应用，包含所有 API 接口
+│   └── models.py         # 数据库模型定义
+├── templates/
+│   └── index.html        # 监控大屏前端页面
+├── logs/                 # 日志目录
+├── iot_devices.db        # SQLite 数据库
+├── requirements.txt      # Python 依赖
+├── server.py             # 启动入口
+├── migrate_add_pending_commands.py  # 数据库迁移脚本
+└── migrate_commands_v2.py           # 指令格式迁移脚本
+```
+
+## 🔧 配置参数
+
+| 参数 | 默认值 | 说明 |
+|------|--------|------|
+| HEARTBEAT_TIMEOUT | 30 秒 | 心跳超时时间 |
+| CHECK_INTERVAL | 10 秒 | 设备状态检查间隔 |
+| COMMAND_TTL_SECONDS | 600 秒 (10 分钟) | 指令有效期 |
+| TEMPERATURE_THRESHOLD | 50°C | 温度告警阈值 |
+
+## 🚨 告警机制
+
+### 自动温度告警
+- **触发条件**：设备上报温度超过 50°C
+- **自动指令**：`alert_buzzer = on`
+- **去重逻辑**：同一设备不会重复添加待处理的告警指令
+
+### 日志示例
+```
+[Alert] Device sensor_001: Temperature 55.5°C exceeds 50°C - Triggering alert_buzzer (id=xxx)
+[Command] Command xxx delivered to device
+[Command] Command xxx acknowledged by device
+```
+
+## 📝 数据库迁移
+
+首次部署或升级时需要执行迁移脚本：
+
+```bash
+# 1. 添加 pending_commands 字段（首次部署）
+python migrate_add_pending_commands.py
+
+# 2. 转换旧格式指令（从 v1 升级到 v2）
+python migrate_commands_v2.py
+```
+
+## 🤝 贡献指南
+
+1. Fork 本仓库
+2. 创建特性分支 (`git checkout -b feature/AmazingFeature`)
+3. 提交更改 (`git commit -m 'Add some AmazingFeature'`)
+4. 推送到分支 (`git push origin feature/AmazingFeature`)
+5. 创建 Pull Request
+
+## 📄 许可证
+
+MIT License - 详见 LICENSE 文件
+
+## 🆘 问题反馈
+
+如有问题或建议，请提交 Issue。
+
+---
+
+**OmniPulse-IoT** - 让物联网设备管理更简单、更可靠。
