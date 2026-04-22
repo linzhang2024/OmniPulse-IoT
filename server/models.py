@@ -40,3 +40,11 @@ class DeviceData(Base):
     recorded_at = Column(DateTime, default=datetime.utcnow)
     
     device = relationship("Device", back_populates="data_records")
+
+class DeviceDataHistory(Base):
+    __tablename__ = "device_data_history"
+
+    id = Column(String(36), primary_key=True, index=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
+    payload = Column(JSON, nullable=False)
+    timestamp = Column(DateTime, default=datetime.utcnow)

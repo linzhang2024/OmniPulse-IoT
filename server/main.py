@@ -13,8 +13,9 @@ import uuid
 import hashlib
 import secrets
 import string
+import time
 
-from .models import Base, Device, DeviceStatus, DeviceData, CommandStatus
+from .models import Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
 HEARTBEAT_TIMEOUT = 30
@@ -149,7 +150,7 @@ def verify_signature(device_id: str, timestamp: str, signature: str, secret_key:
     
     try:
         timestamp_int = int(timestamp)
-        current_timestamp = int(datetime.utcnow().timestamp())
+        current_timestamp = int(time.time())
         time_diff = abs(current_timestamp - timestamp_int)
         
         if time_diff > SIGNATURE_TIMESTAMP_TOLERANCE:
@@ -430,15 +431,25 @@ def report_device_data(
     )
     db.add(new_data)
     
+    history_record = DeviceDataHistory(
+        id=str(uuid.uuid4()),
+        device_id=data_report.device_id,
+        payload=data_report.payload,
+        timestamp=datetime.utcnow()
+    )
+    db.add(history_record)
+    
     now = datetime.utcnow()
     device.last_heartbeat = now
     device.status = DeviceStatus.ONLINE
     db.commit()
     db.refresh(new_data)
+    db.refresh(history_record)
     
     return {
         "message": "Data reported successfully",
         "data_id": new_data.id,
+        "history_id": history_record.id,
         "device_id": new_data.device_id,
         "payload": new_data.payload,
         "recorded_at": new_data.recorded_at
