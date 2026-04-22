@@ -1,9 +1,9 @@
-from fastapi import FastAPI, Depends, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, Query
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
-from sqlalchemy import create_engine, desc
+from sqlalchemy import create_engine, desc, and_, func, text
 from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
@@ -426,10 +426,26 @@ def report_device_data(
             detail=f"Authentication failed: {error_msg}"
         )
     
+    payload = data_report.payload
+    temperature = None
+    humidity = None
+    
+    if 'temperature' in payload:
+        temperature = payload['temperature']
+    elif 'temp' in payload:
+        temperature = payload['temp']
+    
+    if 'humidity' in payload:
+        humidity = payload['humidity']
+    
+    is_alert = False
+    if temperature is not None and isinstance(temperature, (int, float)):
+        is_alert = temperature > TEMPERATURE_THRESHOLD
+    
     new_data = DeviceData(
         id=str(uuid.uuid4()),
         device_id=data_report.device_id,
-        payload=data_report.payload,
+        payload=payload,
         recorded_at=datetime.utcnow()
     )
     db.add(new_data)
@@ -437,8 +453,11 @@ def report_device_data(
     history_record = DeviceDataHistory(
         id=str(uuid.uuid4()),
         device_id=data_report.device_id,
-        payload=data_report.payload,
-        timestamp=datetime.utcnow()
+        payload=payload,
+        timestamp=datetime.utcnow(),
+        temperature=temperature,
+        humidity=humidity,
+        is_alert=is_alert
     )
     db.add(history_record)
     
@@ -919,4 +938,137 @@ def update_complaint(
             }
             for r in replies
         ]
+    }
+
+MIN_INTERVAL_SECONDS = 10
+
+@app.get("/devices/{device_id}/history")
+def get_device_history(
+    device_id: str,
+    start_time: str = Query(..., description="Start time in ISO format (e.g., 2026-04-20T00:00:00)"),
+    end_time: str = Query(..., description="End time in ISO format (e.g., 2026-04-22T00:00:00)"),
+    interval_seconds: int = Query(60, ge=1, description="Aggregation interval in seconds (minimum 10s enforced)"),
+    db: Session = Depends(get_db)
+):
+    try:
+        start_dt = datetime.fromisoformat(start_time)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid start_time format. Use ISO format: YYYY-MM-DDTHH:MM:SS"
+        )
+    
+    try:
+        end_dt = datetime.fromisoformat(end_time)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid end_time format. Use ISO format: YYYY-MM-DDTHH:MM:SS"
+        )
+    
+    if start_dt > end_dt:
+        raise HTTPException(
+            status_code=422,
+            detail="start_time cannot be later than end_time"
+        )
+    
+    if interval_seconds < MIN_INTERVAL_SECONDS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"interval_seconds must be at least {MIN_INTERVAL_SECONDS} seconds"
+        )
+    
+    device = db.query(Device).filter(Device.device_id == device_id).first()
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+    
+    sql_query = text("""
+        SELECT
+            datetime(
+                (strftime('%s', timestamp) / :interval) * :interval,
+                'unixepoch'
+            ) as window_start,
+            COUNT(*) as record_count,
+            MAX(temperature) as temp_max,
+            MIN(temperature) as temp_min,
+            AVG(temperature) as temp_avg,
+            MAX(humidity) as humidity_max,
+            MIN(humidity) as humidity_min,
+            AVG(humidity) as humidity_avg,
+            MAX(CASE WHEN is_alert = 1 THEN 1 ELSE 0 END) as has_alert
+        FROM device_data_history
+        WHERE 
+            device_id = :device_id
+            AND timestamp >= :start_time
+            AND timestamp <= :end_time
+            AND temperature IS NOT NULL
+        GROUP BY window_start
+        ORDER BY window_start ASC
+    """)
+    
+    result = db.execute(
+        sql_query,
+        {
+            "device_id": device_id,
+            "start_time": start_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "end_time": end_dt.strftime("%Y-%m-%d %H:%M:%S"),
+            "interval": interval_seconds
+        }
+    )
+    
+    data_points = []
+    for row in result:
+        window_start = row[0]
+        record_count = row[1]
+        temp_max = row[2]
+        temp_min = row[3]
+        temp_avg = row[4]
+        humidity_max = row[5]
+        humidity_min = row[6]
+        humidity_avg = row[7]
+        has_alert = row[8] == 1
+        
+        try:
+            window_dt = datetime.strptime(window_start, "%Y-%m-%d %H:%M:%S")
+            window_end_dt = window_dt + timedelta(seconds=interval_seconds)
+            window_end = window_end_dt.strftime("%Y-%m-%dT%H:%M:%S")
+            window_start_iso = window_dt.strftime("%Y-%m-%dT%H:%M:%S")
+        except:
+            window_start_iso = window_start
+            window_end = window_start
+        
+        data_point = {
+            "window_start": window_start_iso,
+            "window_end": window_end,
+            "interval_seconds": interval_seconds,
+            "record_count": record_count,
+            "temperature": {
+                "max": float(temp_max) if temp_max is not None else None,
+                "min": float(temp_min) if temp_min is not None else None,
+                "avg": float(temp_avg) if temp_avg is not None else None,
+                "count": record_count
+            },
+            "humidity": {
+                "max": float(humidity_max) if humidity_max is not None else None,
+                "min": float(humidity_min) if humidity_min is not None else None,
+                "avg": float(humidity_avg) if humidity_avg is not None else None,
+                "count": record_count
+            },
+            "has_alert": has_alert
+        }
+        data_points.append(data_point)
+    
+    return {
+        "device_id": device_id,
+        "time_range": {
+            "start": start_time,
+            "end": end_time
+        },
+        "interval_seconds": interval_seconds,
+        "min_interval_seconds": MIN_INTERVAL_SECONDS,
+        "total_data_points": len(data_points),
+        "data_points": data_points
     }

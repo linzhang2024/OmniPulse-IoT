@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey, JSON
+from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey, JSON, Float, Boolean
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 import enum
@@ -47,7 +47,10 @@ class DeviceDataHistory(Base):
     id = Column(String(36), primary_key=True, index=True)
     device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
     payload = Column(JSON, nullable=False)
-    timestamp = Column(DateTime, default=datetime.utcnow)
+    timestamp = Column(DateTime, default=datetime.utcnow, index=True)
+    temperature = Column(Float, nullable=True, index=True)
+    humidity = Column(Float, nullable=True)
+    is_alert = Column(Boolean, default=False, index=True)
 
 class UserRole(enum.Enum):
     GUEST = "guest"
