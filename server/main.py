@@ -950,6 +950,24 @@ def get_device_history(
     interval_seconds: int = Query(60, ge=1, description="Aggregation interval in seconds (minimum 10s enforced)"),
     db: Session = Depends(get_db)
 ):
+    """
+    获取设备历史数据的降采样接口 - 生产级性能实现
+    
+    核心设计原则：
+    1. 数据库层面聚合：所有聚合操作在 SQLite 层面完成，不加载全量数据到 Python 内存
+    2. 多维聚合：每个时间窗口返回 max/min/avg/count
+    3. 告警穿透：MAX(CASE WHEN is_alert = 1 THEN 1 ELSE 0 END)
+    
+    性能保证：
+    - 即使查询时间范围是一年，也不会造成内存溢出
+    - 时间窗口由 GROUP BY 操作在数据库层面执行
+    - 只返回聚合后的少量数据点
+    
+    边界保护：
+    - start_time > end_time: 返回 422 错误
+    - interval_seconds < 10: 返回 422 错误（防止恶意请求）
+    """
+    
     try:
         start_dt = datetime.fromisoformat(start_time)
     except ValueError:
@@ -985,6 +1003,63 @@ def get_device_history(
             detail="Device not found"
         )
     
+    """
+    ============================================================================
+    数据库层面聚合 SQL 语句 - 核心性能调优确认
+    ============================================================================
+    
+    关键设计说明：
+    1. 所有聚合操作都在 SQLite 引擎层面完成，不加载原始数据到 Python 内存
+    2. 时间窗口计算使用 strftime + 整数除法实现降采样
+    3. 告警穿透使用 MAX(CASE WHEN is_alert = 1 THEN 1 ELSE 0 END)
+    
+    避免的问题：
+    - 不会将 10000 条原始数据加载到 Python 内存
+    - 不会在 Python 中进行循环计算
+    - 内存占用恒定，与数据量无关
+    
+    SQL 语句详解：
+    
+    SELECT
+        -- 1. 时间窗口计算：将时间戳整除 interval 秒，再乘以 interval 秒
+        --    例如：interval=60，则 12:34:56 -> 12:34:00
+        datetime(
+            (strftime('%s', timestamp) / :interval) * :interval,
+            'unixepoch'
+        ) as window_start,
+        
+        -- 2. 多维聚合：每个时间窗口内的统计指标
+        COUNT(*) as record_count,           -- 该窗口内的原始记录数
+        MAX(temperature) as temp_max,       -- 该窗口内温度最大值（峰值预警）
+        MIN(temperature) as temp_min,       -- 该窗口内温度最小值
+        AVG(temperature) as temp_avg,       -- 该窗口内温度平均值
+        MAX(humidity) as humidity_max,
+        MIN(humidity) as humidity_min,
+        AVG(humidity) as humidity_avg,
+        
+        -- 3. 告警穿透逻辑：MAX(CASE WHEN ...)
+        --    只要窗口内有任何一条 is_alert=1 的记录，返回 1
+        --    否则返回 0
+        --    IoT 价值：峰值告警不会被平均淹没
+        MAX(CASE WHEN is_alert = 1 THEN 1 ELSE 0 END) as has_alert
+        
+    FROM device_data_history
+    WHERE 
+        device_id = :device_id
+        AND timestamp >= :start_time
+        AND timestamp <= :end_time
+        AND temperature IS NOT NULL          -- 过滤无效数据
+    GROUP BY window_start                    -- 按时间窗口聚合
+    ORDER BY window_start ASC               -- 按时间排序
+    
+    性能优化：
+    - device_data_history 表有索引：
+      - ix_device_data_history_device_id (设备过滤)
+      - ix_device_data_history_timestamp (时间范围过滤)
+      - ix_device_data_history_temperature (聚合列)
+      - ix_device_data_history_is_alert (告警过滤)
+    ============================================================================
+    """
     sql_query = text("""
         SELECT
             datetime(
