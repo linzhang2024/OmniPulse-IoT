@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>IoT 设备监控大屏</title>
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
     <style>
         * {
             margin: 0;
@@ -787,6 +788,116 @@
             font-size: 14px;
             line-height: 1.5;
         }
+        
+        .history-modal .modal {
+            max-width: 900px;
+            width: 95%;
+        }
+        
+        .history-toolbar {
+            display: flex;
+            gap: 12px;
+            margin-bottom: 16px;
+            align-items: center;
+            flex-wrap: wrap;
+        }
+        
+        .history-toolbar label {
+            color: #90a4ae;
+            font-size: 14px;
+            margin-right: 8px;
+        }
+        
+        .time-range-select {
+            padding: 8px 16px;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 6px;
+            background: rgba(255, 255, 255, 0.05);
+            color: #e0e0e0;
+            font-size: 14px;
+            cursor: pointer;
+        }
+        
+        .time-range-select:hover {
+            border-color: rgba(79, 195, 247, 0.5);
+        }
+        
+        .time-range-select:focus {
+            outline: none;
+            border-color: #4fc3f7;
+        }
+        
+        .refresh-btn {
+            padding: 8px 20px;
+            background: linear-gradient(135deg, #4fc3f7 0%, #29b6f6 100%);
+            border: none;
+            border-radius: 6px;
+            color: #1a1a2e;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .refresh-btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 15px rgba(79, 195, 247, 0.4);
+        }
+        
+        .refresh-btn:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+            transform: none;
+        }
+        
+        .history-chart-container {
+            width: 100%;
+            height: 400px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .history-stats {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 16px;
+            margin-top: 16px;
+        }
+        
+        .stat-card {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            text-align: center;
+        }
+        
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+            color: #4fc3f7;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #78909c;
+            margin-top: 4px;
+        }
+        
+        .stat-card.alert .stat-value {
+            color: #ff5252;
+        }
+        
+        .chart-loading {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100%;
+            color: #78909c;
+        }
+        
+        .chart-loading .loading-spinner {
+            margin-right: 12px;
+        }
     </style>
 </head>
 <body>
@@ -959,6 +1070,65 @@
         </div>
     </div>
     
+    <div id="history-modal" class="modal-overlay history-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3 id="history-modal-title">设备历史数据</h3>
+                <button class="modal-close" onclick="closeModal('history-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="history-toolbar">
+                    <label>时间范围:</label>
+                    <select id="time-range-select" class="time-range-select" onchange="onTimeRangeChange()">
+                        <option value="1">最近 1 小时</option>
+                        <option value="6">最近 6 小时</option>
+                        <option value="12">最近 12 小时</option>
+                        <option value="24">最近 24 小时</option>
+                        <option value="168">最近 7 天</option>
+                    </select>
+                    <label>聚合间隔:</label>
+                    <select id="interval-select" class="time-range-select">
+                        <option value="60">1 分钟</option>
+                        <option value="300" selected>5 分钟</option>
+                        <option value="600">10 分钟</option>
+                        <option value="1800">30 分钟</option>
+                        <option value="3600">1 小时</option>
+                    </select>
+                    <button id="refresh-history-btn" class="refresh-btn" onclick="refreshHistoryData()">
+                        刷新数据
+                    </button>
+                </div>
+                <div id="history-chart" class="history-chart-container">
+                    <div class="chart-loading">
+                        <div class="loading-spinner"></div>
+                        <span>暂无数据</span>
+                    </div>
+                </div>
+                <div class="history-stats">
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-total-points">0</div>
+                        <div class="stat-label">数据点数量</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-avg-temp">-</div>
+                        <div class="stat-label">平均温度 (°C)</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="stat-max-temp">-</div>
+                        <div class="stat-label">最高温度 (°C)</div>
+                    </div>
+                    <div class="stat-card alert" id="stat-alert-card" style="display: none;">
+                        <div class="stat-value" id="stat-alert-count">0</div>
+                        <div class="stat-label">告警聚合点</div>
+                    </div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('history-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+    
     <script>
         const API_URL = '/devices';
         const REFRESH_INTERVAL = 5000;
@@ -1064,6 +1234,9 @@
                     
                     <div class="device-footer">
                         <span class="model-badge">${device.model}</span>
+                        <button class="control-btn" data-device-id="${device.device_id}" onclick="showDeviceHistory('${device.device_id}', '${device.model}')">
+                            查看历史
+                        </button>
                         <button class="control-btn" data-device-id="${device.device_id}" ${btnDisabled}>
                             远程关机
                         </button>
@@ -1679,6 +1852,327 @@
             const div = document.createElement('div');
             div.textContent = text;
             return div.innerHTML;
+        }
+        
+        let currentHistoryDeviceId = null;
+        let currentHistoryModel = null;
+        let historyChart = null;
+        
+        function showDeviceHistory(deviceId, model) {
+            currentHistoryDeviceId = deviceId;
+            currentHistoryModel = model;
+            
+            document.getElementById('history-modal-title').textContent = `设备历史数据 - ${model} (${deviceId.substring(0, 8)})`;
+            document.getElementById('history-modal').classList.add('active');
+            
+            initHistoryChart();
+            
+            setTimeout(() => {
+                if (historyChart) {
+                    historyChart.resize();
+                }
+                refreshHistoryData();
+            }, 100);
+        }
+        
+        function initHistoryChart() {
+            const chartDom = document.getElementById('history-chart');
+            
+            chartDom.innerHTML = '';
+            
+            if (historyChart) {
+                historyChart.dispose();
+            }
+            
+            historyChart = echarts.init(chartDom);
+            
+            const option = {
+                title: {
+                    text: '温度历史趋势',
+                    left: 'center',
+                    textStyle: {
+                        color: '#e0e0e0',
+                        fontSize: 16
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    formatter: function(params) {
+                        let result = params[0].axisValue + '<br/>';
+                        params.forEach(param => {
+                            if (param.seriesType === 'line') {
+                                result += `${param.marker} ${param.seriesName}: ${param.value.toFixed(2)}°C<br/>`;
+                            } else if (param.seriesType === 'scatter') {
+                                result += `${param.marker} <span style="color:#ff5252;font-weight:bold;">告警!</span><br/>`;
+                                result += `&nbsp;&nbsp;温度: ${param.value[1].toFixed(2)}°C`;
+                            }
+                        });
+                        return result;
+                    },
+                    backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                    borderColor: 'rgba(79, 195, 247, 0.5)',
+                    textStyle: {
+                        color: '#e0e0e0'
+                    }
+                },
+                legend: {
+                    data: ['平均值', '最大值', '最小值', '告警点'],
+                    top: 30,
+                    textStyle: {
+                        color: '#90a4ae'
+                    }
+                },
+                grid: {
+                    left: '3%',
+                    right: '4%',
+                    bottom: '3%',
+                    top: 80,
+                    containLabel: true
+                },
+                xAxis: {
+                    type: 'category',
+                    boundaryGap: false,
+                    data: [],
+                    axisLine: {
+                        lineStyle: {
+                            color: 'rgba(255, 255, 255, 0.2)'
+                        }
+                    },
+                    axisLabel: {
+                        color: '#78909c',
+                        fontSize: 10
+                    }
+                },
+                yAxis: {
+                    type: 'value',
+                    name: '温度 (°C)',
+                    axisLine: {
+                        lineStyle: {
+                            color: 'rgba(255, 255, 255, 0.2)'
+                        }
+                    },
+                    axisLabel: {
+                        color: '#78909c'
+                    },
+                    splitLine: {
+                        lineStyle: {
+                            color: 'rgba(255, 255, 255, 0.05)'
+                        }
+                    }
+                },
+                series: [
+                    {
+                        name: '平均值',
+                        type: 'line',
+                        smooth: true,
+                        data: [],
+                        lineStyle: {
+                            color: '#4fc3f7',
+                            width: 2
+                        },
+                        itemStyle: {
+                            color: '#4fc3f7'
+                        },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(79, 195, 247, 0.3)' },
+                                { offset: 1, color: 'rgba(79, 195, 247, 0.05)' }
+                            ])
+                        }
+                    },
+                    {
+                        name: '最大值',
+                        type: 'line',
+                        smooth: true,
+                        data: [],
+                        lineStyle: {
+                            color: '#ff7043',
+                            width: 1,
+                            type: 'dashed'
+                        },
+                        itemStyle: {
+                            color: '#ff7043'
+                        },
+                        symbol: 'none'
+                    },
+                    {
+                        name: '最小值',
+                        type: 'line',
+                        smooth: true,
+                        data: [],
+                        lineStyle: {
+                            color: '#66bb6a',
+                            width: 1,
+                            type: 'dashed'
+                        },
+                        itemStyle: {
+                            color: '#66bb6a'
+                        },
+                        symbol: 'none'
+                    },
+                    {
+                        name: '告警点',
+                        type: 'scatter',
+                        data: [],
+                        symbolSize: 12,
+                        itemStyle: {
+                            color: '#ff5252',
+                            shadowBlur: 10,
+                            shadowColor: 'rgba(255, 82, 82, 0.5)'
+                        },
+                        emphasis: {
+                            scale: 1.5
+                        }
+                    }
+                ],
+                markLine: {
+                    data: [
+                        { yAxis: 50, name: '告警阈值', lineStyle: { color: '#ff5252', type: 'dashed' }, label: { color: '#ff5252' } }
+                    ]
+                }
+            };
+            
+            historyChart.setOption(option);
+        }
+        
+        function onTimeRangeChange() {
+            refreshHistoryData();
+        }
+        
+        async function refreshHistoryData() {
+            if (!currentHistoryDeviceId) {
+                return;
+            }
+            
+            const refreshBtn = document.getElementById('refresh-history-btn');
+            refreshBtn.disabled = true;
+            refreshBtn.textContent = '加载中...';
+            
+            try {
+                const timeRangeHours = parseInt(document.getElementById('time-range-select').value);
+                const intervalSeconds = parseInt(document.getElementById('interval-select').value);
+                
+                const now = new Date();
+                const endTime = new Date(now.getTime() + 12 * 60 * 60 * 1000);
+                const startTime = new Date(endTime.getTime() - timeRangeHours * 60 * 60 * 1000);
+                
+                const formatTime = (date) => {
+                    return date.toISOString().replace('Z', '').substring(0, 19);
+                };
+                
+                const startStr = formatTime(startTime);
+                const endStr = formatTime(endTime);
+                
+                const url = `/devices/${currentHistoryDeviceId}/history?start_time=${startStr}&end_time=${endStr}&interval_seconds=${intervalSeconds}`;
+                
+                const response = await fetch(url);
+                
+                if (!response.ok) {
+                    throw new Error(`查询失败: ${response.status}`);
+                }
+                
+                const result = await response.json();
+                
+                const totalPoints = result.total_data_points || 0;
+                const dataPoints = result.data_points || [];
+                
+                document.getElementById('stat-total-points').textContent = totalPoints;
+                
+                if (totalPoints === 0) {
+                    document.getElementById('stat-avg-temp').textContent = '-';
+                    document.getElementById('stat-max-temp').textContent = '-';
+                    document.getElementById('stat-alert-card').style.display = 'none';
+                    
+                    if (historyChart) {
+                        historyChart.setOption({
+                            xAxis: { data: [] },
+                            series: [
+                                { data: [] },
+                                { data: [] },
+                                { data: [] },
+                                { data: [] }
+                            ]
+                        });
+                    }
+                    
+                    showToast('暂无历史数据', 'error');
+                    return;
+                }
+                
+                const timeLabels = [];
+                const avgData = [];
+                const maxData = [];
+                const minData = [];
+                const alertPoints = [];
+                
+                let totalTempSum = 0;
+                let totalTempCount = 0;
+                let overallMax = -Infinity;
+                let alertPointCount = 0;
+                
+                dataPoints.forEach((point, index) => {
+                    const timeLabel = point.window_start.replace('T', ' ').substring(5, 16);
+                    timeLabels.push(timeLabel);
+                    
+                    const temp = point.temperature;
+                    avgData.push(temp.avg);
+                    maxData.push(temp.max);
+                    minData.push(temp.min);
+                    
+                    if (temp.avg !== null) {
+                        totalTempSum += temp.avg * temp.count;
+                        totalTempCount += temp.count;
+                    }
+                    
+                    if (temp.max !== null && temp.max > overallMax) {
+                        overallMax = temp.max;
+                    }
+                    
+                    if (point.has_alert) {
+                        alertPointCount++;
+                        alertPoints.push({
+                            name: '告警',
+                            value: [index, temp.max || 0],
+                            itemStyle: {
+                                color: '#ff5252'
+                            }
+                        });
+                    }
+                });
+                
+                const avgTemp = totalTempCount > 0 ? (totalTempSum / totalTempCount).toFixed(1) : '-';
+                const maxTemp = overallMax > -Infinity ? overallMax.toFixed(1) : '-';
+                
+                document.getElementById('stat-avg-temp').textContent = avgTemp;
+                document.getElementById('stat-max-temp').textContent = maxTemp;
+                
+                const alertCard = document.getElementById('stat-alert-card');
+                if (alertPointCount > 0) {
+                    alertCard.style.display = 'block';
+                    document.getElementById('stat-alert-count').textContent = alertPointCount;
+                } else {
+                    alertCard.style.display = 'none';
+                }
+                
+                if (historyChart) {
+                    historyChart.setOption({
+                        xAxis: { data: timeLabels },
+                        series: [
+                            { data: avgData },
+                            { data: maxData },
+                            { data: minData },
+                            { data: alertPoints }
+                        ]
+                    });
+                }
+                
+            } catch (error) {
+                console.error('获取历史数据失败:', error);
+                showToast(error.message || '获取历史数据失败', 'error');
+            } finally {
+                refreshBtn.disabled = false;
+                refreshBtn.textContent = '刷新数据';
+            }
         }
         
         function init() {
