@@ -48,3 +48,52 @@ class DeviceDataHistory(Base):
     device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
     payload = Column(JSON, nullable=False)
     timestamp = Column(DateTime, default=datetime.utcnow)
+
+class UserRole(enum.Enum):
+    GUEST = "guest"
+    STAFF = "staff"
+    ADMIN = "admin"
+
+class ComplaintStatus(enum.Enum):
+    PENDING = "pending"
+    IN_PROGRESS = "in_progress"
+    RESOLVED = "resolved"
+
+class User(Base):
+    __tablename__ = "users"
+
+    id = Column(String(36), primary_key=True, index=True)
+    username = Column(String(64), unique=True, nullable=False, index=True)
+    password_hash = Column(String(128), nullable=False)
+    role = Column(Enum(UserRole), default=UserRole.GUEST)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    complaints = relationship("Complaint", back_populates="user")
+    replies = relationship("ComplaintReply", back_populates="user")
+
+class Complaint(Base):
+    __tablename__ = "complaints"
+
+    id = Column(String(36), primary_key=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    title = Column(String(255), nullable=False)
+    content = Column(String(2000), nullable=False)
+    status = Column(Enum(ComplaintStatus), default=ComplaintStatus.PENDING)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    user = relationship("User", back_populates="complaints")
+    replies = relationship("ComplaintReply", back_populates="complaint", cascade="all, delete-orphan")
+
+class ComplaintReply(Base):
+    __tablename__ = "complaint_replies"
+
+    id = Column(String(36), primary_key=True, index=True)
+    complaint_id = Column(String(36), ForeignKey("complaints.id"), nullable=False, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=False, index=True)
+    content = Column(String(2000), nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    
+    complaint = relationship("Complaint", back_populates="replies")
+    user = relationship("User", back_populates="replies")

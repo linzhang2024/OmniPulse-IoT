@@ -15,7 +15,10 @@ import secrets
 import string
 import time
 
-from .models import Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus
+from .models import (
+    Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
+    User, UserRole, Complaint, ComplaintStatus, ComplaintReply
+)
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
 HEARTBEAT_TIMEOUT = 30
@@ -516,3 +519,404 @@ def check_device_status(device: Device):
     
     if time_since_heartbeat > HEARTBEAT_TIMEOUT:
         device.status = DeviceStatus.OFFLINE
+
+def hash_password(password: str) -> str:
+    return hashlib.sha256(password.encode('utf-8')).hexdigest()
+
+def verify_password(password: str, password_hash: str) -> bool:
+    return hash_password(password) == password_hash
+
+class UserRegister(BaseModel):
+    username: str
+    password: str
+
+class UserLogin(BaseModel):
+    username: str
+    password: str
+
+class ComplaintCreate(BaseModel):
+    title: str
+    content: str
+
+class ComplaintUpdate(BaseModel):
+    reply_content: str = None
+    status: str = None
+
+def get_current_user(db: Session = Depends(get_db)) -> User:
+    from fastapi import Header
+    user_id = None
+    
+    async def get_user(x_user_id: str = Header(None, alias="X-User-ID")):
+        if not x_user_id:
+            raise HTTPException(
+                status_code=401,
+                detail="User authentication required. Please provide X-User-ID header."
+            )
+        user = db.query(User).filter(User.id == x_user_id).first()
+        if not user:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid user ID."
+            )
+        return user
+    
+    return None
+
+@app.post("/users/register")
+def register_user(user_data: UserRegister, db: Session = Depends(get_db)):
+    existing_user = db.query(User).filter(
+        User.username == user_data.username
+    ).first()
+    
+    if existing_user:
+        raise HTTPException(
+            status_code=400,
+            detail="Username already exists."
+        )
+    
+    new_user = User(
+        id=str(uuid.uuid4()),
+        username=user_data.username,
+        password_hash=hash_password(user_data.password),
+        role=UserRole.GUEST
+    )
+    db.add(new_user)
+    db.commit()
+    db.refresh(new_user)
+    
+    return {
+        "message": "User registered successfully",
+        "user_id": new_user.id,
+        "username": new_user.username,
+        "role": new_user.role.value
+    }
+
+@app.post("/users/login")
+def login_user(login_data: UserLogin, db: Session = Depends(get_db)):
+    user = db.query(User).filter(
+        User.username == login_data.username
+    ).first()
+    
+    if not user or not verify_password(login_data.password, user.password_hash):
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid username or password."
+        )
+    
+    return {
+        "message": "Login successful",
+        "user_id": user.id,
+        "username": user.username,
+        "role": user.role.value
+    }
+
+@app.get("/users/{user_id}")
+def get_user_info(user_id: str, db: Session = Depends(get_db)):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=404,
+            detail="User not found."
+        )
+    
+    return {
+        "user_id": user.id,
+        "username": user.username,
+        "role": user.role.value,
+        "created_at": user.created_at
+    }
+
+@app.post("/users/create-admin")
+def create_admin_user(db: Session = Depends(get_db)):
+    admin_user = db.query(User).filter(User.username == "admin").first()
+    if admin_user:
+        return {
+            "message": "Admin user already exists",
+            "user_id": admin_user.id,
+            "username": admin_user.username,
+            "role": admin_user.role.value
+        }
+    
+    new_admin = User(
+        id=str(uuid.uuid4()),
+        username="admin",
+        password_hash=hash_password("admin123"),
+        role=UserRole.ADMIN
+    )
+    db.add(new_admin)
+    
+    staff_user = User(
+        id=str(uuid.uuid4()),
+        username="staff",
+        password_hash=hash_password("staff123"),
+        role=UserRole.STAFF
+    )
+    db.add(staff_user)
+    
+    db.commit()
+    
+    return {
+        "message": "Admin and Staff users created successfully",
+        "users": [
+            {"user_id": new_admin.id, "username": "admin", "role": "ADMIN", "password": "admin123"},
+            {"user_id": staff_user.id, "username": "staff", "role": "STAFF", "password": "staff123"}
+        ]
+    }
+
+def require_staff_or_admin(user_id: str, db: Session):
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="User not found."
+        )
+    if user.role not in [UserRole.STAFF, UserRole.ADMIN]:
+        raise HTTPException(
+            status_code=403,
+            detail="Permission denied. Staff or Admin role required."
+        )
+    return user
+
+@app.post("/complaints")
+def create_complaint(
+    complaint_data: ComplaintCreate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if not x_user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User authentication required. Please provide X-User-ID header."
+        )
+    
+    user = db.query(User).filter(User.id == x_user_id).first()
+    if not user:
+        raise HTTPException(
+            status_code=401,
+            detail="Invalid user ID."
+        )
+    
+    new_complaint = Complaint(
+        id=str(uuid.uuid4()),
+        user_id=user.id,
+        title=complaint_data.title,
+        content=complaint_data.content,
+        status=ComplaintStatus.PENDING
+    )
+    db.add(new_complaint)
+    db.commit()
+    db.refresh(new_complaint)
+    
+    return {
+        "message": "Complaint created successfully",
+        "complaint_id": new_complaint.id,
+        "title": new_complaint.title,
+        "content": new_complaint.content,
+        "status": new_complaint.status.value,
+        "created_at": new_complaint.created_at
+    }
+
+@app.get("/complaints")
+def get_all_complaints(
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        user = db.query(User).filter(User.id == x_user_id).first()
+        if user and user.role in [UserRole.STAFF, UserRole.ADMIN]:
+            complaints = db.query(Complaint).order_by(
+                desc(Complaint.created_at)
+            ).all()
+            result = []
+            for complaint in complaints:
+                replies = db.query(ComplaintReply).filter(
+                    ComplaintReply.complaint_id == complaint.id
+                ).order_by(ComplaintReply.created_at).all()
+                
+                user = db.query(User).filter(User.id == complaint.user_id).first()
+                
+                result.append({
+                    "complaint_id": complaint.id,
+                    "user_id": complaint.user_id,
+                    "username": user.username if user else None,
+                    "title": complaint.title,
+                    "content": complaint.content,
+                    "status": complaint.status.value,
+                    "created_at": complaint.created_at,
+                    "updated_at": complaint.updated_at,
+                    "replies": [
+                        {
+                            "id": r.id,
+                            "user_id": r.user_id,
+                            "content": r.content,
+                            "created_at": r.created_at
+                        }
+                        for r in replies
+                    ]
+                })
+            return result
+    
+    if not x_user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User authentication required."
+        )
+    
+    complaints = db.query(Complaint).filter(
+        Complaint.user_id == x_user_id
+    ).order_by(desc(Complaint.created_at)).all()
+    
+    result = []
+    for complaint in complaints:
+        replies = db.query(ComplaintReply).filter(
+            ComplaintReply.complaint_id == complaint.id
+        ).order_by(ComplaintReply.created_at).all()
+        
+        result.append({
+            "complaint_id": complaint.id,
+            "title": complaint.title,
+            "content": complaint.content,
+            "status": complaint.status.value,
+            "created_at": complaint.created_at,
+            "updated_at": complaint.updated_at,
+            "replies": [
+                {
+                    "id": r.id,
+                    "user_id": r.user_id,
+                    "content": r.content,
+                    "created_at": r.created_at
+                }
+                for r in replies
+            ]
+        })
+    return result
+
+@app.get("/complaints/{complaint_id}")
+def get_complaint_detail(
+    complaint_id: str,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    complaint = db.query(Complaint).filter(
+        Complaint.id == complaint_id
+    ).first()
+    
+    if not complaint:
+        raise HTTPException(
+            status_code=404,
+            detail="Complaint not found."
+        )
+    
+    if x_user_id:
+        user = db.query(User).filter(User.id == x_user_id).first()
+        if user and user.role in [UserRole.STAFF, UserRole.ADMIN]:
+            pass
+        elif complaint.user_id != x_user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Permission denied."
+            )
+    else:
+        raise HTTPException(
+            status_code=401,
+            detail="User authentication required."
+        )
+    
+    replies = db.query(ComplaintReply).filter(
+        ComplaintReply.complaint_id == complaint.id
+    ).order_by(ComplaintReply.created_at).all()
+    
+    return {
+        "complaint_id": complaint.id,
+        "user_id": complaint.user_id,
+        "title": complaint.title,
+        "content": complaint.content,
+        "status": complaint.status.value,
+        "created_at": complaint.created_at,
+        "updated_at": complaint.updated_at,
+        "replies": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "content": r.content,
+                "created_at": r.created_at
+            }
+            for r in replies
+        ]
+    }
+
+@app.patch("/complaints/{complaint_id}")
+def update_complaint(
+    complaint_id: str,
+    update_data: ComplaintUpdate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if not x_user_id:
+        raise HTTPException(
+            status_code=401,
+            detail="User authentication required."
+        )
+    
+    require_staff_or_admin(x_user_id, db)
+    
+    complaint = db.query(Complaint).filter(
+        Complaint.id == complaint_id
+    ).first()
+    
+    if not complaint:
+        raise HTTPException(
+            status_code=404,
+            detail="Complaint not found."
+        )
+    
+    if update_data.reply_content is not None:
+        if not update_data.reply_content or update_data.reply_content.strip() == "":
+            raise HTTPException(
+                status_code=422,
+                detail="Reply content cannot be empty."
+            )
+        
+        new_reply = ComplaintReply(
+            id=str(uuid.uuid4()),
+            complaint_id=complaint.id,
+            user_id=x_user_id,
+            content=update_data.reply_content
+        )
+        db.add(new_reply)
+    
+    if update_data.status:
+        status_map = {
+            "pending": ComplaintStatus.PENDING,
+            "in_progress": ComplaintStatus.IN_PROGRESS,
+            "resolved": ComplaintStatus.RESOLVED
+        }
+        if update_data.status not in status_map:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid status. Must be one of: pending, in_progress, resolved"
+            )
+        complaint.status = status_map[update_data.status]
+    
+    db.commit()
+    db.refresh(complaint)
+    
+    replies = db.query(ComplaintReply).filter(
+        ComplaintReply.complaint_id == complaint.id
+    ).order_by(ComplaintReply.created_at).all()
+    
+    return {
+        "message": "Complaint updated successfully",
+        "complaint_id": complaint.id,
+        "status": complaint.status.value,
+        "updated_at": complaint.updated_at,
+        "replies": [
+            {
+                "id": r.id,
+                "user_id": r.user_id,
+                "content": r.content,
+                "created_at": r.created_at
+            }
+            for r in replies
+        ]
+    }

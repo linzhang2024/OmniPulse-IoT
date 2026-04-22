@@ -33,6 +33,110 @@
             font-weight: 600;
         }
         
+        .header-right {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+        
+        .nav-tabs {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .nav-tab {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            color: #90a4ae;
+            padding: 8px 16px;
+            border-radius: 20px;
+            cursor: pointer;
+            font-size: 14px;
+            transition: all 0.3s ease;
+        }
+        
+        .nav-tab:hover {
+            background: rgba(79, 195, 247, 0.1);
+            border-color: rgba(79, 195, 247, 0.3);
+        }
+        
+        .nav-tab.active {
+            background: rgba(79, 195, 247, 0.2);
+            border-color: rgba(79, 195, 247, 0.5);
+            color: #4fc3f7;
+        }
+        
+        .user-section {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+        
+        .user-info {
+            font-size: 14px;
+            color: #90a4ae;
+        }
+        
+        .user-info .username {
+            color: #4fc3f7;
+            font-weight: 600;
+        }
+        
+        .user-info .role {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            margin-left: 8px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #4fc3f7, #29b6f6);
+            color: white;
+            border: none;
+            padding: 8px 16px;
+            border-radius: 20px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 20px rgba(79, 195, 247, 0.4);
+        }
+        
+        .btn-outline {
+            background: transparent;
+            border: 1px solid rgba(255, 255, 255, 0.3);
+            color: #90a4ae;
+        }
+        
+        .btn-outline:hover {
+            background: rgba(255, 255, 255, 0.05);
+            border-color: rgba(255, 255, 255, 0.5);
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .btn-danger {
+            background: linear-gradient(135deg, #ff6b6b, #ee5a5a);
+        }
+        
+        .btn-danger:hover {
+            box-shadow: 0 8px 20px rgba(255, 107, 107, 0.4);
+        }
+        
+        .btn-success {
+            background: linear-gradient(135deg, #4caf50, #45a049);
+        }
+        
+        .btn-success:hover {
+            box-shadow: 0 8px 20px rgba(76, 175, 80, 0.4);
+        }
+        
         .status-bar {
             display: flex;
             gap: 30px;
@@ -316,22 +420,392 @@
         .toast.error {
             border-left: 4px solid #f44336;
         }
+        
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(0, 0, 0, 0.7);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+        
+        .modal-overlay.active {
+            display: flex;
+        }
+        
+        .modal {
+            background: #1a1a2e;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 16px;
+            width: 90%;
+            max-width: 500px;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        
+        .modal-header {
+            padding: 20px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .modal-header h3 {
+            color: #4fc3f7;
+            font-size: 18px;
+        }
+        
+        .modal-close {
+            background: none;
+            border: none;
+            color: #90a4ae;
+            font-size: 24px;
+            cursor: pointer;
+            line-height: 1;
+        }
+        
+        .modal-close:hover {
+            color: #fff;
+        }
+        
+        .modal-body {
+            padding: 20px;
+        }
+        
+        .form-group {
+            margin-bottom: 20px;
+        }
+        
+        .form-group label {
+            display: block;
+            color: #90a4ae;
+            font-size: 14px;
+            margin-bottom: 8px;
+        }
+        
+        .form-group input,
+        .form-group textarea,
+        .form-group select {
+            width: 100%;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 12px;
+            color: #fff;
+            font-size: 14px;
+            font-family: inherit;
+        }
+        
+        .form-group input:focus,
+        .form-group textarea:focus,
+        .form-group select:focus {
+            outline: none;
+            border-color: #4fc3f7;
+        }
+        
+        .form-group textarea {
+            resize: vertical;
+            min-height: 100px;
+        }
+        
+        .form-group select {
+            cursor: pointer;
+        }
+        
+        .form-group select option {
+            background: #1a1a2e;
+            color: #fff;
+        }
+        
+        .modal-footer {
+            padding: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            display: flex;
+            justify-content: flex-end;
+            gap: 10px;
+        }
+        
+        .complaints-section {
+            display: none;
+        }
+        
+        .complaints-section.active {
+            display: block;
+        }
+        
+        .section-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+        
+        .section-header h2 {
+            color: #4fc3f7;
+            font-size: 24px;
+        }
+        
+        .complaints-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: rgba(255, 255, 255, 0.02);
+            border-radius: 12px;
+            overflow: hidden;
+        }
+        
+        .complaints-table th,
+        .complaints-table td {
+            padding: 16px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .complaints-table th {
+            background: rgba(0, 0, 0, 0.3);
+            color: #90a4ae;
+            font-weight: 600;
+            font-size: 12px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .complaints-table td {
+            color: #e0e0e0;
+            font-size: 14px;
+        }
+        
+        .complaints-table tr:hover {
+            background: rgba(255, 255, 255, 0.02);
+        }
+        
+        .complaints-table .title-cell {
+            max-width: 200px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .complaints-table .content-cell {
+            max-width: 300px;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+        }
+        
+        .status-badge {
+            display: inline-block;
+            padding: 4px 12px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+        
+        .status-badge.pending {
+            background: rgba(255, 193, 7, 0.2);
+            color: #ffc107;
+        }
+        
+        .status-badge.in_progress {
+            background: rgba(33, 150, 243, 0.2);
+            color: #2196f3;
+        }
+        
+        .status-badge.resolved {
+            background: rgba(76, 175, 80, 0.2);
+            color: #4caf50;
+        }
+        
+        .action-btn {
+            padding: 6px 12px;
+            border-radius: 16px;
+            font-size: 12px;
+            border: none;
+            cursor: pointer;
+            transition: all 0.3s ease;
+        }
+        
+        .action-btn.primary {
+            background: rgba(79, 195, 247, 0.2);
+            color: #4fc3f7;
+        }
+        
+        .action-btn.primary:hover {
+            background: rgba(79, 195, 247, 0.3);
+        }
+        
+        .tab-container {
+            display: flex;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+            margin-bottom: 20px;
+        }
+        
+        .tab-item {
+            padding: 12px 24px;
+            color: #90a4ae;
+            cursor: pointer;
+            font-size: 14px;
+            border-bottom: 2px solid transparent;
+            transition: all 0.3s ease;
+        }
+        
+        .tab-item:hover {
+            color: #4fc3f7;
+        }
+        
+        .tab-item.active {
+            color: #4fc3f7;
+            border-bottom-color: #4fc3f7;
+        }
+        
+        .tab-content {
+            display: none;
+        }
+        
+        .tab-content.active {
+            display: block;
+        }
+        
+        .reply-item {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 12px;
+        }
+        
+        .reply-item.admin {
+            border-left: 3px solid #4fc3f7;
+            background: rgba(79, 195, 247, 0.05);
+        }
+        
+        .reply-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 8px;
+        }
+        
+        .reply-author {
+            color: #4fc3f7;
+            font-weight: 600;
+            font-size: 14px;
+        }
+        
+        .reply-author .role-badge {
+            background: rgba(79, 195, 247, 0.2);
+            color: #4fc3f7;
+            padding: 2px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            margin-left: 8px;
+        }
+        
+        .reply-time {
+            color: #546e7a;
+            font-size: 12px;
+        }
+        
+        .reply-content {
+            color: #e0e0e0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .complaint-detail {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        
+        .complaint-detail .complaint-title {
+            color: #fff;
+            font-size: 16px;
+            margin-bottom: 12px;
+            font-weight: 600;
+        }
+        
+        .complaint-detail .complaint-content {
+            color: #b0b0b0;
+            font-size: 14px;
+            line-height: 1.6;
+        }
+        
+        .complaint-detail .complaint-meta {
+            display: flex;
+            gap: 16px;
+            margin-top: 12px;
+            font-size: 12px;
+            color: #546e7a;
+        }
+        
+        .empty-state {
+            text-align: center;
+            padding: 60px 20px;
+            color: #546e7a;
+        }
+        
+        .empty-state .empty-icon {
+            font-size: 48px;
+            margin-bottom: 16px;
+        }
+        
+        .empty-state .empty-text {
+            font-size: 16px;
+            margin-bottom: 8px;
+        }
+        
+        .empty-state .empty-hint {
+            font-size: 14px;
+            color: #78909c;
+        }
+        
+        .processing-modal .modal {
+            max-width: 600px;
+        }
+        
+        .processing-modal .complaint-info {
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+            padding: 16px;
+            margin-bottom: 20px;
+        }
+        
+        .processing-modal .complaint-info-title {
+            color: #4fc3f7;
+            font-weight: 600;
+            margin-bottom: 8px;
+        }
+        
+        .processing-modal .complaint-info-content {
+            color: #b0b0b0;
+            font-size: 14px;
+            line-height: 1.5;
+        }
     </style>
 </head>
 <body>
     <header class="header">
         <h1>📡 IoT 设备监控大屏</h1>
-        <div class="status-bar">
-            <div class="status-item">
-                <span class="status-dot online"></span>
-                <span>在线: <strong id="online-count">0</strong></span>
+        <div class="header-right">
+            <div class="nav-tabs">
+                <div class="nav-tab active" data-tab="devices">设备监控</div>
+                <div class="nav-tab" data-tab="complaints">投诉管理</div>
             </div>
-            <div class="status-item">
-                <span class="status-dot offline"></span>
-                <span>离线: <strong id="offline-count">0</strong></span>
-            </div>
-            <div class="last-update">
-                最后更新: <span id="last-update">-</span>
+            <div class="user-section">
+                <span id="user-info" class="user-info" style="display: none;">
+                    <span class="username" id="current-username"></span>
+                    <span class="role" id="current-role"></span>
+                </span>
+                <button id="login-btn" class="btn btn-outline" onclick="showLoginModal()">登录</button>
+                <button id="register-btn" class="btn btn-outline" onclick="showRegisterModal()">注册</button>
+                <button id="logout-btn" class="btn btn-outline" style="display: none;" onclick="logout()">退出</button>
+                <button id="feedback-btn" class="btn" style="display: none;" onclick="showFeedbackModal()">意见反馈</button>
             </div>
         </div>
     </header>
@@ -339,15 +813,151 @@
     <div id="error-message" class="error-message"></div>
     
     <main class="main-content">
-        <div id="loading" class="loading">
-            <div class="loading-spinner"></div>
-            <p>正在加载设备数据...</p>
+        <div id="devices-section" class="devices-section">
+            <div id="loading" class="loading">
+                <div class="loading-spinner"></div>
+                <p>正在加载设备数据...</p>
+            </div>
+            
+            <div id="devices-container" class="devices-grid" style="display: none;"></div>
         </div>
         
-        <div id="devices-container" class="devices-grid" style="display: none;"></div>
+        <div id="complaints-section" class="complaints-section">
+            <div class="section-header">
+                <h2>📋 投诉管理</h2>
+            </div>
+            <div id="complaints-table-container"></div>
+        </div>
     </main>
     
     <div id="toast" class="toast"></div>
+    
+    <div id="login-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>用户登录</h3>
+                <button class="modal-close" onclick="closeModal('login-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="login-username">用户名</label>
+                    <input type="text" id="login-username" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label for="login-password">密码</label>
+                    <input type="password" id="login-password" placeholder="请输入密码">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('login-modal')">取消</button>
+                <button class="btn" onclick="login()">登录</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="register-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>用户注册</h3>
+                <button class="modal-close" onclick="closeModal('register-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="form-group">
+                    <label for="register-username">用户名</label>
+                    <input type="text" id="register-username" placeholder="请输入用户名">
+                </div>
+                <div class="form-group">
+                    <label for="register-password">密码</label>
+                    <input type="password" id="register-password" placeholder="请输入密码">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('register-modal')">取消</button>
+                <button class="btn" onclick="register()">注册</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="feedback-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>意见反馈</h3>
+                <button class="modal-close" onclick="closeModal('feedback-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="tab-container">
+                    <div class="tab-item active" data-feedback-tab="new" onclick="switchFeedbackTab('new')">新建投诉</div>
+                    <div class="tab-item" data-feedback-tab="history" onclick="switchFeedbackTab('history')">历史记录</div>
+                </div>
+                
+                <div id="feedback-new-tab" class="tab-content active">
+                    <div class="form-group">
+                        <label for="feedback-title">标题</label>
+                        <input type="text" id="feedback-title" placeholder="请输入投诉标题">
+                    </div>
+                    <div class="form-group">
+                        <label for="feedback-content">内容</label>
+                        <textarea id="feedback-content" placeholder="请详细描述您的问题或建议..."></textarea>
+                    </div>
+                </div>
+                
+                <div id="feedback-history-tab" class="tab-content">
+                    <div id="my-complaints-list"></div>
+                </div>
+            </div>
+            <div class="modal-footer" id="feedback-footer-new">
+                <button class="btn btn-outline" onclick="closeModal('feedback-modal')">取消</button>
+                <button class="btn" onclick="submitComplaint()">提交</button>
+            </div>
+            <div class="modal-footer" id="feedback-footer-history" style="display: none;">
+                <button class="btn btn-outline" onclick="closeModal('feedback-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="complaint-detail-modal" class="modal-overlay">
+        <div class="modal" style="max-width: 600px;">
+            <div class="modal-header">
+                <h3>投诉详情</h3>
+                <button class="modal-close" onclick="closeModal('complaint-detail-modal')">&times;</button>
+            </div>
+            <div class="modal-body" id="complaint-detail-body"></div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('complaint-detail-modal')">关闭</button>
+            </div>
+        </div>
+    </div>
+    
+    <div id="processing-modal" class="modal-overlay processing-modal">
+        <div class="modal">
+            <div class="modal-header">
+                <h3>处理投诉</h3>
+                <button class="modal-close" onclick="closeModal('processing-modal')">&times;</button>
+            </div>
+            <div class="modal-body">
+                <div class="complaint-info">
+                    <div class="complaint-info-title" id="processing-complaint-title"></div>
+                    <div class="complaint-info-content" id="processing-complaint-content"></div>
+                </div>
+                <div class="form-group">
+                    <label for="processing-status">状态</label>
+                    <select id="processing-status">
+                        <option value="pending">待处理</option>
+                        <option value="in_progress">处理中</option>
+                        <option value="resolved">已解决</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="processing-reply">回复内容</label>
+                    <textarea id="processing-reply" placeholder="请输入回复内容..."></textarea>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="btn btn-outline" onclick="closeModal('processing-modal')">取消</button>
+                <button class="btn btn-success" onclick="submitProcessing()">提交</button>
+            </div>
+        </div>
+    </div>
     
     <script>
         const API_URL = '/devices';
@@ -355,6 +965,8 @@
         
         let onlineCount = 0;
         let offlineCount = 0;
+        let currentUser = null;
+        let currentProcessingComplaintId = null;
         
         function formatDateTime(dateString) {
             if (!dateString) return '-';
@@ -483,10 +1095,6 @@
             errorElement.classList.remove('visible');
             
             container.innerHTML = devices.map(device => createDeviceCard(device)).join('');
-            
-            document.getElementById('online-count').textContent = onlineCount;
-            document.getElementById('offline-count').textContent = offlineCount;
-            document.getElementById('last-update').textContent = new Date().toLocaleTimeString('zh-CN');
         }
         
         function showError(message) {
@@ -580,14 +1188,525 @@
                 updateDashboard(devices);
             } catch (error) {
                 console.error('获取设备数据失败:', error);
-                showError(`无法连接到服务器: ${error.message}`);
             }
+        }
+        
+        function showLoginModal() {
+            document.getElementById('login-modal').classList.add('active');
+        }
+        
+        function showRegisterModal() {
+            document.getElementById('register-modal').classList.add('active');
+        }
+        
+        function showFeedbackModal() {
+            switchFeedbackTab('new');
+            document.getElementById('feedback-title').value = '';
+            document.getElementById('feedback-content').value = '';
+            loadMyComplaints();
+            document.getElementById('feedback-modal').classList.add('active');
+        }
+        
+        function closeModal(modalId) {
+            document.getElementById(modalId).classList.remove('active');
+        }
+        
+        async function login() {
+            const username = document.getElementById('login-username').value.trim();
+            const password = document.getElementById('login-password').value;
+            
+            if (!username || !password) {
+                showToast('请输入用户名和密码', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/users/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '登录失败');
+                }
+                
+                const result = await response.json();
+                currentUser = {
+                    id: result.user_id,
+                    username: result.username,
+                    role: result.role
+                };
+                
+                localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                updateUserUI();
+                closeModal('login-modal');
+                showToast('登录成功！', 'success');
+                
+                if (currentUser.role === 'admin' || currentUser.role === 'staff') {
+                    loadComplaints();
+                }
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+        
+        async function register() {
+            const username = document.getElementById('register-username').value.trim();
+            const password = document.getElementById('register-password').value;
+            
+            if (!username || !password) {
+                showToast('请输入用户名和密码', 'error');
+                return;
+            }
+            
+            if (password.length < 4) {
+                showToast('密码长度至少4位', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/users/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '注册失败');
+                }
+                
+                showToast('注册成功！请登录', 'success');
+                closeModal('register-modal');
+                showLoginModal();
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+        
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('currentUser');
+            updateUserUI();
+            showToast('已退出登录', 'success');
+        }
+        
+        function updateUserUI() {
+            const loginBtn = document.getElementById('login-btn');
+            const registerBtn = document.getElementById('register-btn');
+            const logoutBtn = document.getElementById('logout-btn');
+            const feedbackBtn = document.getElementById('feedback-btn');
+            const userInfo = document.getElementById('user-info');
+            const navTabs = document.querySelectorAll('.nav-tab[data-tab="complaints"]');
+            
+            if (currentUser) {
+                loginBtn.style.display = 'none';
+                registerBtn.style.display = 'none';
+                logoutBtn.style.display = 'inline-block';
+                feedbackBtn.style.display = 'inline-block';
+                userInfo.style.display = 'inline';
+                
+                document.getElementById('current-username').textContent = currentUser.username;
+                document.getElementById('current-role').textContent = currentUser.role === 'admin' ? '管理员' : currentUser.role === 'staff' ? '员工' : '游客';
+                
+                navTabs.forEach(tab => {
+                    tab.style.display = (currentUser.role === 'admin' || currentUser.role === 'staff') ? 'inline-block' : 'none';
+                });
+            } else {
+                loginBtn.style.display = 'inline-block';
+                registerBtn.style.display = 'inline-block';
+                logoutBtn.style.display = 'none';
+                feedbackBtn.style.display = 'none';
+                userInfo.style.display = 'none';
+                
+                navTabs.forEach(tab => tab.style.display = 'none');
+                
+                document.querySelector('.nav-tab[data-tab="devices"]').click();
+            }
+        }
+        
+        function switchTab(tabName) {
+            document.querySelectorAll('.nav-tab').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.tab === tabName) {
+                    tab.classList.add('active');
+                }
+            });
+            
+            document.getElementById('devices-section').classList.remove('active');
+            document.getElementById('complaints-section').classList.remove('active');
+            
+            document.getElementById(`${tabName}-section`).classList.add('active');
+            
+            if (tabName === 'complaints') {
+                loadComplaints();
+            }
+        }
+        
+        function switchFeedbackTab(tabName) {
+            document.querySelectorAll('.tab-item[data-feedback-tab]').forEach(tab => {
+                tab.classList.remove('active');
+                if (tab.dataset.feedbackTab === tabName) {
+                    tab.classList.add('active');
+                }
+            });
+            
+            document.getElementById('feedback-new-tab').classList.remove('active');
+            document.getElementById('feedback-history-tab').classList.remove('active');
+            document.getElementById(`feedback-${tabName}-tab`).classList.add('active');
+            
+            document.getElementById('feedback-footer-new').style.display = tabName === 'new' ? 'flex' : 'none';
+            document.getElementById('feedback-footer-history').style.display = tabName === 'history' ? 'flex' : 'none';
+            
+            if (tabName === 'history') {
+                loadMyComplaints();
+            }
+        }
+        
+        async function submitComplaint() {
+            const title = document.getElementById('feedback-title').value.trim();
+            const content = document.getElementById('feedback-content').value.trim();
+            
+            if (!title || !content) {
+                showToast('请填写标题和内容', 'error');
+                return;
+            }
+            
+            if (!currentUser) {
+                showToast('请先登录', 'error');
+                return;
+            }
+            
+            try {
+                const response = await fetch('/complaints', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': currentUser.id
+                    },
+                    body: JSON.stringify({ title, content })
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '提交失败');
+                }
+                
+                showToast('投诉提交成功！', 'success');
+                closeModal('feedback-modal');
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+        
+        async function loadComplaints() {
+            if (!currentUser || (currentUser.role !== 'admin' && currentUser.role !== 'staff')) {
+                return;
+            }
+            
+            const container = document.getElementById('complaints-table-container');
+            
+            try {
+                const response = await fetch('/complaints', {
+                    headers: { 'X-User-ID': currentUser.id }
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '加载失败');
+                }
+                
+                const complaints = await response.json();
+                
+                if (complaints.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <div class="empty-text">暂无投诉记录</div>
+                            <div class="empty-hint">等待用户提交投诉...</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let tableHtml = `
+                    <table class="complaints-table">
+                        <thead>
+                            <tr>
+                                <th>标题</th>
+                                <th>内容</th>
+                                <th>提交人</th>
+                                <th>状态</th>
+                                <th>提交时间</th>
+                                <th>操作</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                complaints.forEach(complaint => {
+                    const statusClass = complaint.status === 'pending' ? 'pending' : 
+                                       complaint.status === 'in_progress' ? 'in_progress' : 'resolved';
+                    const statusText = complaint.status === 'pending' ? '待处理' :
+                                      complaint.status === 'in_progress' ? '处理中' : '已解决';
+                    
+                    tableHtml += `
+                        <tr>
+                            <td class="title-cell">${escapeHtml(complaint.title)}</td>
+                            <td class="content-cell">${escapeHtml(complaint.content)}</td>
+                            <td>${escapeHtml(complaint.username || '-')}</td>
+                            <td><span class="status-badge ${statusClass}">${statusText}</span></td>
+                            <td>${formatDateTime(complaint.created_at)}</td>
+                            <td>
+                                <button class="action-btn primary" onclick="viewComplaintDetail('${complaint.complaint_id}')">查看</button>
+                                <button class="action-btn primary" onclick="showProcessingModal('${complaint.complaint_id}', '${escapeHtml(complaint.title)}', '${escapeHtml(complaint.content)}', '${complaint.status}')">处理</button>
+                            </td>
+                        </tr>
+                    `;
+                });
+                
+                tableHtml += `
+                        </tbody>
+                    </table>
+                `;
+                
+                container.innerHTML = tableHtml;
+                
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">⚠️</div>
+                        <div class="empty-text">加载失败</div>
+                        <div class="empty-hint">${error.message}</div>
+                    </div>
+                `;
+            }
+        }
+        
+        async function loadMyComplaints() {
+            if (!currentUser) return;
+            
+            const container = document.getElementById('my-complaints-list');
+            
+            try {
+                const response = await fetch('/complaints', {
+                    headers: { 'X-User-ID': currentUser.id }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('加载失败');
+                }
+                
+                const complaints = await response.json();
+                
+                if (complaints.length === 0) {
+                    container.innerHTML = `
+                        <div class="empty-state">
+                            <div class="empty-icon">📭</div>
+                            <div class="empty-text">暂无投诉记录</div>
+                            <div class="empty-hint">您还没有提交过投诉</div>
+                        </div>
+                    `;
+                    return;
+                }
+                
+                let html = '';
+                complaints.forEach(complaint => {
+                    const statusClass = complaint.status === 'pending' ? 'pending' : 
+                                       complaint.status === 'in_progress' ? 'in_progress' : 'resolved';
+                    const statusText = complaint.status === 'pending' ? '待处理' :
+                                      complaint.status === 'in_progress' ? '处理中' : '已解决';
+                    
+                    let repliesHtml = '';
+                    if (complaint.replies && complaint.replies.length > 0) {
+                        complaint.replies.forEach(reply => {
+                            repliesHtml += `
+                                <div class="reply-item admin">
+                                    <div class="reply-header">
+                                        <span class="reply-author">管理员回复 <span class="role-badge">工作人员</span></span>
+                                        <span class="reply-time">${formatDateTime(reply.created_at)}</span>
+                                    </div>
+                                    <div class="reply-content">${escapeHtml(reply.content)}</div>
+                                </div>
+                            `;
+                        });
+                    }
+                    
+                    html += `
+                        <div class="complaint-detail">
+                            <div class="complaint-title">${escapeHtml(complaint.title)}</div>
+                            <div class="complaint-content">${escapeHtml(complaint.content)}</div>
+                            <div class="complaint-meta">
+                                <span>状态: <span class="status-badge ${statusClass}">${statusText}</span></span>
+                                <span>提交时间: ${formatDateTime(complaint.created_at)}</span>
+                            </div>
+                        </div>
+                        ${repliesHtml}
+                        <hr style="border: none; border-top: 1px solid rgba(255,255,255,0.05); margin: 20px 0;">
+                    `;
+                });
+                
+                container.innerHTML = html;
+                
+            } catch (error) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-icon">⚠️</div>
+                        <div class="empty-text">加载失败</div>
+                        <div class="empty-hint">${error.message}</div>
+                    </div>
+                `;
+            }
+        }
+        
+        async function viewComplaintDetail(complaintId) {
+            if (!currentUser) return;
+            
+            try {
+                const response = await fetch(`/complaints/${complaintId}`, {
+                    headers: { 'X-User-ID': currentUser.id }
+                });
+                
+                if (!response.ok) {
+                    throw new Error('加载失败');
+                }
+                
+                const complaint = await response.json();
+                
+                const statusClass = complaint.status === 'pending' ? 'pending' : 
+                                   complaint.status === 'in_progress' ? 'in_progress' : 'resolved';
+                const statusText = complaint.status === 'pending' ? '待处理' :
+                                  complaint.status === 'in_progress' ? '处理中' : '已解决';
+                
+                let repliesHtml = '';
+                if (complaint.replies && complaint.replies.length > 0) {
+                    complaint.replies.forEach(reply => {
+                        repliesHtml += `
+                            <div class="reply-item admin">
+                                <div class="reply-header">
+                                    <span class="reply-author">管理员回复</span>
+                                    <span class="reply-time">${formatDateTime(reply.created_at)}</span>
+                                </div>
+                                <div class="reply-content">${escapeHtml(reply.content)}</div>
+                            </div>
+                        `;
+                    });
+                }
+                
+                const body = document.getElementById('complaint-detail-body');
+                body.innerHTML = `
+                    <div class="complaint-detail">
+                        <div class="complaint-title">${escapeHtml(complaint.title)}</div>
+                        <div class="complaint-content">${escapeHtml(complaint.content)}</div>
+                        <div class="complaint-meta">
+                            <span>状态: <span class="status-badge ${statusClass}">${statusText}</span></span>
+                            <span>提交时间: ${formatDateTime(complaint.created_at)}</span>
+                            <span>更新时间: ${formatDateTime(complaint.updated_at)}</span>
+                        </div>
+                    </div>
+                    ${repliesHtml || '<div class="no-data">暂无回复</div>'}
+                `;
+                
+                document.getElementById('complaint-detail-modal').classList.add('active');
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+        
+        function showProcessingModal(complaintId, title, content, currentStatus) {
+            currentProcessingComplaintId = complaintId;
+            document.getElementById('processing-complaint-title').textContent = title;
+            document.getElementById('processing-complaint-content').textContent = content;
+            
+            const statusSelect = document.getElementById('processing-status');
+            statusSelect.value = currentStatus;
+            document.getElementById('processing-reply').value = '';
+            
+            document.getElementById('processing-modal').classList.add('active');
+        }
+        
+        async function submitProcessing() {
+            if (!currentProcessingComplaintId || !currentUser) return;
+            
+            const replyContent = document.getElementById('processing-reply').value;
+            const status = document.getElementById('processing-status').value;
+            
+            if (replyContent !== undefined && (replyContent === null || replyContent.trim() === '')) {
+                showToast('回复内容不能为空', 'error');
+                return;
+            }
+            
+            try {
+                const body = {};
+                if (replyContent !== undefined && replyContent !== null) {
+                    body.reply_content = replyContent;
+                }
+                if (status) {
+                    body.status = status;
+                }
+                
+                const response = await fetch(`/complaints/${currentProcessingComplaintId}`, {
+                    method: 'PATCH',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-User-ID': currentUser.id
+                    },
+                    body: JSON.stringify(body)
+                });
+                
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.detail || '处理失败');
+                }
+                
+                showToast('处理成功！', 'success');
+                closeModal('processing-modal');
+                loadComplaints();
+                
+            } catch (error) {
+                showToast(error.message, 'error');
+            }
+        }
+        
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
         }
         
         function init() {
             bindControlEvents();
             fetchDevices();
             setInterval(fetchDevices, REFRESH_INTERVAL);
+            
+            document.querySelectorAll('.nav-tab[data-tab]').forEach(tab => {
+                tab.addEventListener('click', () => switchTab(tab.dataset.tab));
+            });
+            
+            document.querySelectorAll('.modal-overlay').forEach(overlay => {
+                overlay.addEventListener('click', (e) => {
+                    if (e.target === overlay) {
+                        overlay.classList.remove('active');
+                    }
+                });
+            });
+            
+            const savedUser = localStorage.getItem('currentUser');
+            if (savedUser) {
+                try {
+                    currentUser = JSON.parse(savedUser);
+                    updateUserUI();
+                } catch (e) {
+                    localStorage.removeItem('currentUser');
+                }
+            }
         }
         
         document.addEventListener('DOMContentLoaded', init);
