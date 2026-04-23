@@ -898,6 +898,255 @@
         .chart-loading .loading-spinner {
             margin-right: 12px;
         }
+        
+        .realtime-chart-container {
+            width: 100%;
+            height: 150px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 8px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            margin-top: 16px;
+            position: relative;
+        }
+        
+        .realtime-chart-title {
+            position: absolute;
+            top: 8px;
+            left: 12px;
+            font-size: 11px;
+            color: #78909c;
+            z-index: 10;
+            background: rgba(26, 26, 46, 0.8);
+            padding: 2px 8px;
+            border-radius: 4px;
+        }
+        
+        .realtime-chart-status {
+            position: absolute;
+            top: 8px;
+            right: 12px;
+            font-size: 10px;
+            color: #4caf50;
+            z-index: 10;
+            display: flex;
+            align-items: center;
+            gap: 4px;
+        }
+        
+        .realtime-chart-status .status-dot {
+            width: 6px;
+            height: 6px;
+            background: #4caf50;
+            border-radius: 50%;
+            animation: pulse 1.5s infinite;
+        }
+        
+        .control-panel {
+            margin-top: 16px;
+            padding: 16px;
+            background: rgba(0, 0, 0, 0.15);
+            border-radius: 12px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        
+        .control-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 16px;
+        }
+        
+        .control-panel-title {
+            font-size: 14px;
+            font-weight: 600;
+            color: #4fc3f7;
+        }
+        
+        .control-panel-status {
+            font-size: 11px;
+            color: #78909c;
+        }
+        
+        .switch-controls {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .switch-control {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 12px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+        
+        .switch-label {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+        }
+        
+        .switch-label-main {
+            font-size: 13px;
+            color: #e0e0e0;
+            font-weight: 500;
+        }
+        
+        .switch-label-sub {
+            font-size: 10px;
+            color: #78909c;
+        }
+        
+        .switch {
+            position: relative;
+            width: 48px;
+            height: 26px;
+        }
+        
+        .switch input {
+            opacity: 0;
+            width: 0;
+            height: 0;
+        }
+        
+        .slider {
+            position: absolute;
+            cursor: pointer;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: #546e7a;
+            transition: 0.3s;
+            border-radius: 26px;
+        }
+        
+        .slider:before {
+            position: absolute;
+            content: "";
+            height: 20px;
+            width: 20px;
+            left: 3px;
+            bottom: 3px;
+            background-color: white;
+            transition: 0.3s;
+            border-radius: 50%;
+        }
+        
+        input:checked + .slider {
+            background: linear-gradient(135deg, #4fc3f7, #29b6f6);
+        }
+        
+        input:checked + .slider:before {
+            transform: translateX(22px);
+        }
+        
+        .slider:hover {
+            background-color: #607d8b;
+        }
+        
+        input:checked + .slider:hover {
+            background: linear-gradient(135deg, #4fc3f7, #29b6f6);
+        }
+        
+        .command-section {
+            border-top: 1px solid rgba(255, 255, 255, 0.08);
+            padding-top: 16px;
+        }
+        
+        .command-label {
+            font-size: 12px;
+            color: #90a4ae;
+            margin-bottom: 8px;
+            display: block;
+        }
+        
+        .command-input-row {
+            display: flex;
+            gap: 10px;
+        }
+        
+        .command-input {
+            flex: 1;
+            background: rgba(0, 0, 0, 0.3);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 8px;
+            padding: 10px 14px;
+            color: #fff;
+            font-size: 13px;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .command-input:focus {
+            outline: none;
+            border-color: #4fc3f7;
+        }
+        
+        .command-input::placeholder {
+            color: #546e7a;
+        }
+        
+        .send-command-btn {
+            padding: 10px 20px;
+            background: linear-gradient(135deg, #4fc3f7, #29b6f6);
+            border: none;
+            border-radius: 8px;
+            color: #1a1a2e;
+            font-size: 13px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            white-space: nowrap;
+        }
+        
+        .send-command-btn:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 4px 12px rgba(79, 195, 247, 0.4);
+        }
+        
+        .send-command-btn:disabled {
+            background: #546e7a;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+        
+        .command-history {
+            margin-top: 12px;
+            max-height: 80px;
+            overflow-y: auto;
+        }
+        
+        .command-history-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 6px 10px;
+            background: rgba(0, 0, 0, 0.2);
+            border-radius: 4px;
+            margin-bottom: 4px;
+            font-size: 11px;
+        }
+        
+        .command-history-item .cmd-text {
+            color: #4fc3f7;
+            font-family: 'Consolas', 'Monaco', monospace;
+        }
+        
+        .command-history-item .cmd-status {
+            color: #78909c;
+        }
+        
+        .command-history-item .cmd-status.success {
+            color: #4caf50;
+        }
+        
+        .command-history-item .cmd-status.error {
+            color: #f44336;
+        }
     </style>
 </head>
 <body>
@@ -1197,6 +1446,7 @@
             const statusClass = isOnline ? 'online' : 'offline';
             const statusText = isOnline ? '在线' : '离线';
             const btnDisabled = isOnline ? '' : 'disabled';
+            const controlDisabled = isOnline ? '' : 'disabled';
             
             let sensorHtml = '';
             if (device.latest_payload && Object.keys(device.latest_payload).length > 0) {
@@ -1217,6 +1467,12 @@
                 sensorHtml = '<div class="no-data">暂无传感器数据</div>';
             }
             
+            const chartId = `realtime-chart-${device.device_id.replace(/-/g, '')}`;
+            const lightSwitchId = `switch-light-${device.device_id.replace(/-/g, '')}`;
+            const fanSwitchId = `switch-fan-${device.device_id.replace(/-/g, '')}`;
+            const commandInputId = `command-input-${device.device_id.replace(/-/g, '')}`;
+            const commandHistoryId = `command-history-${device.device_id.replace(/-/g, '')}`;
+            
             return `
                 <div class="device-card ${statusClass}" data-device-id="${device.device_id}">
                     <div class="device-header">
@@ -1231,6 +1487,73 @@
                     </div>
                     
                     ${sensorHtml}
+                    
+                    <div class="realtime-chart-container" id="${chartId}" data-device-id="${device.device_id}">
+                        <div class="realtime-chart-title">📈 实时温度曲线 (最近 50 点)</div>
+                        <div class="realtime-chart-status" style="${isOnline ? '' : 'display: none;'}">
+                            <span class="status-dot"></span>
+                            <span>实时更新中</span>
+                        </div>
+                        <div class="chart-loading" style="display: flex;">
+                            <span>等待数据...</span>
+                        </div>
+                    </div>
+                    
+                    <div class="control-panel" id="control-panel-${device.device_id.replace(/-/g, '')}">
+                        <div class="control-panel-header">
+                            <span class="control-panel-title">🎛️ 远程控制</span>
+                            <span class="control-panel-status">${isOnline ? '设备在线，可控制' : '设备离线，控制不可用'}</span>
+                        </div>
+                        
+                        <div class="switch-controls">
+                            <div class="switch-control">
+                                <div class="switch-label">
+                                    <span class="switch-label-main">💡 灯光</span>
+                                    <span class="switch-label-sub">light_switch</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="${lightSwitchId}" 
+                                           data-device-id="${device.device_id}" 
+                                           data-command="light_switch"
+                                           onchange="handleSwitchChange(this)"
+                                           ${controlDisabled}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                            
+                            <div class="switch-control">
+                                <div class="switch-label">
+                                    <span class="switch-label-main">🌀 风扇</span>
+                                    <span class="switch-label-sub">fan_switch</span>
+                                </div>
+                                <label class="switch">
+                                    <input type="checkbox" id="${fanSwitchId}" 
+                                           data-device-id="${device.device_id}" 
+                                           data-command="fan_switch"
+                                           onchange="handleSwitchChange(this)"
+                                           ${controlDisabled}>
+                                    <span class="slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                        
+                        <div class="command-section">
+                            <label class="command-label">📝 自定义指令</label>
+                            <div class="command-input-row">
+                                <input type="text" class="command-input" id="${commandInputId}" 
+                                       placeholder="例如: set_mode=auto, brightness=80"
+                                       data-device-id="${device.device_id}"
+                                       ${controlDisabled}>
+                                <button class="send-command-btn" 
+                                        onclick="sendCustomCommand('${device.device_id}')"
+                                        ${controlDisabled}>
+                                    发送
+                                </button>
+                            </div>
+                            <div class="command-history" id="${commandHistoryId}">
+                            </div>
+                        </div>
+                    </div>
                     
                     <div class="device-footer">
                         <span class="model-badge">${device.model}</span>
@@ -2175,10 +2498,310 @@
             }
         }
         
+        const realtimeCharts = new Map();
+        const commandHistories = new Map();
+        const REALTIME_DATA_LIMIT = 50;
+        
+        function initRealtimeChart(chartId, deviceId) {
+            const chartDom = document.getElementById(chartId);
+            if (!chartDom) return null;
+            
+            const loadingEl = chartDom.querySelector('.chart-loading');
+            if (loadingEl) {
+                loadingEl.style.display = 'none';
+            }
+            
+            let chart = realtimeCharts.get(deviceId);
+            if (chart) {
+                chart.dispose();
+            }
+            
+            chart = echarts.init(chartDom);
+            
+            const option = {
+                backgroundColor: 'transparent',
+                grid: {
+                    left: '3%',
+                    right: '3%',
+                    bottom: '10%',
+                    top: '15%',
+                    containLabel: false
+                },
+                xAxis: {
+                    type: 'category',
+                    boundaryGap: false,
+                    data: [],
+                    axisLine: {
+                        lineStyle: { color: 'rgba(255, 255, 255, 0.1)' }
+                    },
+                    axisLabel: {
+                        color: '#78909c',
+                        fontSize: 9,
+                        interval: 'auto'
+                    },
+                    axisTick: { show: false }
+                },
+                yAxis: {
+                    type: 'value',
+                    axisLine: { show: false },
+                    axisLabel: {
+                        color: '#78909c',
+                        fontSize: 10
+                    },
+                    splitLine: {
+                        lineStyle: { color: 'rgba(255, 255, 255, 0.05)' }
+                    }
+                },
+                tooltip: {
+                    trigger: 'axis',
+                    backgroundColor: 'rgba(26, 26, 46, 0.95)',
+                    borderColor: 'rgba(79, 195, 247, 0.5)',
+                    textStyle: { color: '#e0e0e0' },
+                    formatter: function(params) {
+                        if (!params || params.length === 0) return '';
+                        let result = params[0].axisValue + '<br/>';
+                        params.forEach(param => {
+                            if (param.seriesType === 'line') {
+                                result += `${param.marker} 温度: ${param.value.toFixed(2)}°C<br/>`;
+                            } else if (param.seriesType === 'scatter') {
+                                result += `${param.marker} <span style="color:#ff5252;font-weight:bold;">告警!</span><br/>`;
+                            }
+                        });
+                        return result;
+                    }
+                },
+                series: [
+                    {
+                        name: '温度',
+                        type: 'line',
+                        smooth: true,
+                        symbol: 'circle',
+                        symbolSize: 4,
+                        data: [],
+                        lineStyle: {
+                            color: '#4fc3f7',
+                            width: 2
+                        },
+                        itemStyle: {
+                            color: '#4fc3f7'
+                        },
+                        areaStyle: {
+                            color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [
+                                { offset: 0, color: 'rgba(79, 195, 247, 0.25)' },
+                                { offset: 1, color: 'rgba(79, 195, 247, 0.02)' }
+                            ])
+                        }
+                    },
+                    {
+                        name: '告警点',
+                        type: 'scatter',
+                        data: [],
+                        symbolSize: 8,
+                        itemStyle: {
+                            color: '#ff5252',
+                            shadowBlur: 6,
+                            shadowColor: 'rgba(255, 82, 82, 0.5)'
+                        }
+                    }
+                ]
+            };
+            
+            chart.setOption(option);
+            realtimeCharts.set(deviceId, chart);
+            
+            return chart;
+        }
+        
+        async function fetchRealtimeData(deviceId) {
+            try {
+                const response = await fetch(`/devices/${deviceId}/history/latest?limit=${REALTIME_DATA_LIMIT}`);
+                if (!response.ok) {
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                console.error(`[RealtimeChart] Failed to fetch data for device ${deviceId}:`, error);
+                return null;
+            }
+        }
+        
+        function updateRealtimeChart(deviceId, data) {
+            const chart = realtimeCharts.get(deviceId);
+            if (!chart || !data || !data.data_points || data.data_points.length === 0) {
+                return;
+            }
+            
+            const timeLabels = [];
+            const tempData = [];
+            const alertPoints = [];
+            
+            data.data_points.forEach((point, index) => {
+                if (point.timestamp && point.temperature !== null) {
+                    const timeStr = point.timestamp.replace('T', ' ').substring(11, 19);
+                    timeLabels.push(timeStr);
+                    tempData.push(point.temperature);
+                    
+                    if (point.is_alert) {
+                        alertPoints.push({
+                            value: [index, point.temperature],
+                            itemStyle: { color: '#ff5252' }
+                        });
+                    }
+                }
+            });
+            
+            if (timeLabels.length === 0) return;
+            
+            chart.setOption({
+                xAxis: { data: timeLabels },
+                series: [
+                    { data: tempData },
+                    { data: alertPoints }
+                ]
+            });
+        }
+        
+        function refreshAllRealtimeCharts() {
+            const chartContainers = document.querySelectorAll('.realtime-chart-container[data-device-id]');
+            
+            chartContainers.forEach(container => {
+                const deviceId = container.dataset.deviceId;
+                const chartId = container.id;
+                
+                if (!realtimeCharts.has(deviceId)) {
+                    initRealtimeChart(chartId, deviceId);
+                }
+                
+                fetchRealtimeData(deviceId).then(data => {
+                    if (data) {
+                        updateRealtimeChart(deviceId, data);
+                    }
+                });
+            });
+        }
+        
+        function resizeRealtimeCharts() {
+            realtimeCharts.forEach(chart => {
+                if (chart) {
+                    chart.resize();
+                }
+            });
+        }
+        
+        async function handleSwitchChange(checkbox) {
+            const deviceId = checkbox.dataset.deviceId;
+            const command = checkbox.dataset.command;
+            const isChecked = checkbox.checked;
+            const value = isChecked ? 'on' : 'off';
+            
+            checkbox.disabled = true;
+            
+            const result = await controlDevice(deviceId, command, value);
+            
+            if (result.success) {
+                const commandText = `${command}=${value}`;
+                addCommandToHistory(deviceId, commandText, true);
+                showToast(`指令已发送: ${commandText}`, 'success');
+            } else {
+                checkbox.checked = !isChecked;
+                addCommandToHistory(deviceId, `${command}=${value}`, false, result.error);
+                showToast(`发送失败: ${result.error}`, 'error');
+            }
+            
+            checkbox.disabled = false;
+        }
+        
+        async function sendCustomCommand(deviceId) {
+            const inputId = `command-input-${deviceId.replace(/-/g, '')}`;
+            const input = document.getElementById(inputId);
+            const button = input?.nextElementSibling;
+            
+            if (!input || !input.value.trim()) {
+                showToast('请输入指令内容', 'error');
+                return;
+            }
+            
+            const commandText = input.value.trim();
+            
+            let command = 'custom';
+            let value = commandText;
+            
+            if (commandText.includes('=')) {
+                const parts = commandText.split('=');
+                command = parts[0].trim();
+                value = parts.slice(1).join('=').trim();
+            }
+            
+            if (input) input.disabled = true;
+            if (button) button.disabled = true;
+            
+            const result = await controlDevice(deviceId, command, value);
+            
+            if (result.success) {
+                addCommandToHistory(deviceId, commandText, true);
+                showToast('指令已发送', 'success');
+                if (input) input.value = '';
+            } else {
+                addCommandToHistory(deviceId, commandText, false, result.error);
+                showToast(`发送失败: ${result.error}`, 'error');
+            }
+            
+            if (input) input.disabled = false;
+            if (button) button.disabled = false;
+        }
+        
+        function addCommandToHistory(deviceId, commandText, success, errorMsg = null) {
+            const historyId = `command-history-${deviceId.replace(/-/g, '')}`;
+            const historyEl = document.getElementById(historyId);
+            
+            if (!historyEl) return;
+            
+            if (!commandHistories.has(deviceId)) {
+                commandHistories.set(deviceId, []);
+            }
+            
+            const history = commandHistories.get(deviceId);
+            const timestamp = new Date().toLocaleTimeString('zh-CN');
+            
+            history.unshift({
+                text: commandText,
+                success: success,
+                error: errorMsg,
+                timestamp: timestamp
+            });
+            
+            if (history.length > 5) {
+                history.pop();
+            }
+            
+            let html = '';
+            history.forEach(item => {
+                const statusClass = item.success ? 'success' : 'error';
+                const statusText = item.success ? '已发送' : (item.error || '失败');
+                html += `
+                    <div class="command-history-item">
+                        <span class="cmd-text">${escapeHtml(item.text)}</span>
+                        <span class="cmd-status ${statusClass}">${item.timestamp} · ${statusText}</span>
+                    </div>
+                `;
+            });
+            
+            historyEl.innerHTML = html;
+        }
+        
         function init() {
             bindControlEvents();
             fetchDevices();
             setInterval(fetchDevices, REFRESH_INTERVAL);
+            
+            setTimeout(() => {
+                refreshAllRealtimeCharts();
+                setInterval(refreshAllRealtimeCharts, REFRESH_INTERVAL);
+            }, 500);
+            
+            window.addEventListener('resize', () => {
+                setTimeout(resizeRealtimeCharts, 100);
+            });
             
             document.querySelectorAll('.nav-tab[data-tab]').forEach(tab => {
                 tab.addEventListener('click', () => switchTab(tab.dataset.tab));

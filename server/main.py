@@ -2867,6 +2867,53 @@ def get_device_history(
         "data_points": data_points
     }
 
+@app.get("/devices/{device_id}/history/latest")
+def get_device_history_latest(
+    device_id: str,
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of records to return (max 200)"),
+    db: Session = Depends(get_db)
+):
+    """
+    获取设备最近 N 条原始历史数据（用于实时看板）
+    
+    与聚合接口不同，此接口返回原始数据点，不进行降采样。
+    适用于实时监控场景，需要展示最近的温度波动曲线。
+    
+    返回字段：
+    - timestamp: 数据记录时间（UTC）
+    - temperature: 温度值
+    - humidity: 湿度值
+    - is_alert: 是否为告警数据
+    """
+    
+    device = db.query(Device).filter(Device.device_id == device_id).first()
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found"
+        )
+    
+    history_records = db.query(DeviceDataHistory).filter(
+        DeviceDataHistory.device_id == device_id,
+        DeviceDataHistory.temperature != None
+    ).order_by(desc(DeviceDataHistory.timestamp)).limit(limit).all()
+    
+    data_points = []
+    for record in reversed(history_records):
+        data_points.append({
+            "timestamp": record.timestamp.isoformat() if record.timestamp else None,
+            "temperature": float(record.temperature) if record.temperature is not None else None,
+            "humidity": float(record.humidity) if record.humidity is not None else None,
+            "is_alert": record.is_alert
+        })
+    
+    return {
+        "device_id": device_id,
+        "limit": limit,
+        "actual_count": len(data_points),
+        "data_points": data_points
+    }
+
 @app.get("/audit/logs")
 def get_audit_logs(
     x_user_id: str = Header(None, alias="X-User-ID"),
