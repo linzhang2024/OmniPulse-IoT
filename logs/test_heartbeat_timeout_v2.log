@@ -1,0 +1,26 @@
+2026-04-23 12:30:37,281 - HeartbeatTimeoutTestV2 - INFO - Created test device: TEST_1776918637_f361d6, status: offline
+2026-04-23 12:30:37,282 - HeartbeatTimeoutTestV2 - INFO - [DeviceOnline] Device TEST_1776918637_f361d6 changed: offline -> online
+2026-04-23 12:30:37,300 - HeartbeatTimeoutTestV2 - INFO - Set device TEST_1776918637_f361d6 last_seen to 130s ago (current status: online)
+2026-04-23 12:30:37,300 - HeartbeatTimeoutTestV2 - CRITICAL - [DeviceOffline] Device TEST_1776918637_f361d6: online -> offline
+2026-04-23 12:30:37,423 - HeartbeatTimeoutTestV2 - INFO - Created test device: TEST_1776918637_1ccd1a, status: offline
+2026-04-23 12:30:37,425 - HeartbeatTimeoutTestV2 - INFO - [DeviceOnline] Device TEST_1776918637_1ccd1a changed: offline -> online
+2026-04-23 12:30:37,442 - HeartbeatTimeoutTestV2 - INFO - Set device TEST_1776918637_1ccd1a last_seen to 70s ago (current status: online)
+2026-04-23 12:30:37,443 - HeartbeatTimeoutTestV2 - WARNING - [DevicePendingOffline] Device TEST_1776918637_1ccd1a: online -> pending_offline
+2026-04-23 12:30:37,563 - HeartbeatTimeoutTestV2 - INFO - Created test device: TEST_1776918637_40e729, status: offline
+2026-04-23 12:30:37,563 - HeartbeatTimeoutTestV2 - INFO - [DeviceOnline] Device TEST_1776918637_40e729 changed: offline -> online
+2026-04-23 12:30:37,579 - HeartbeatTimeoutTestV2 - INFO - Set device TEST_1776918637_40e729 last_seen to 55s ago (current status: online)
+2026-04-23 12:30:37,696 - HeartbeatTimeoutTestV2 - INFO - Created test device: TEST_1776918637_5ea246, status: offline
+2026-04-23 12:30:37,697 - HeartbeatTimeoutTestV2 - INFO - [DeviceOnline] Device TEST_1776918637_5ea246 changed: offline -> online
+2026-04-23 12:30:37,713 - HeartbeatTimeoutTestV2 - INFO - Set device TEST_1776918637_5ea246 last_seen to 70s ago (current status: online)
+2026-04-23 12:30:37,713 - HeartbeatTimeoutTestV2 - WARNING - [DevicePendingOffline] Device TEST_1776918637_5ea246: online -> pending_offline
+2026-04-23 12:30:37,721 - HeartbeatTimeoutTestV2 - INFO - [DeviceOnline] Device TEST_1776918637_5ea246 changed: pending_offline -> online
+2026-04-23 12:30:37,847 - HeartbeatTimeoutTestV2 - INFO - Created test device: TEST_1776918637_82564b, status: offline
+2026-04-23 12:30:37,848 - HeartbeatTimeoutTestV2 - INFO - [DeviceOnline] Device TEST_1776918637_82564b changed: offline -> online
+2026-04-23 12:30:37,865 - HeartbeatTimeoutTestV2 - INFO - Set device TEST_1776918637_82564b last_seen to 70s ago (current status: online)
+2026-04-23 12:30:37,865 - HeartbeatTimeoutTestV2 - WARNING - [DevicePendingOffline] Device TEST_1776918637_82564b: online -> pending_offline
+2026-04-23 12:30:37,880 - HeartbeatTimeoutTestV2 - INFO - Set device TEST_1776918637_82564b last_seen to 130s ago (current status: pending_offline)
+2026-04-23 12:30:37,880 - HeartbeatTimeoutTestV2 - CRITICAL - [DeviceOffline] Device TEST_1776918637_82564b: pending_offline -> offline (from pending)
+2026-04-23 12:30:37,998 - HeartbeatTimeoutTestV2 - INFO - Created test device: TEST_1776918637_662171, status: offline
+2026-04-23 12:30:38,107 - HeartbeatTimeoutTestV2 - INFO - Created test device: TEST_1776918638_5a8a8a, status: offline
+2026-04-23 12:30:38,107 - HeartbeatTimeoutTestV2 - INFO - [DeviceOnline] Device TEST_1776918638_5a8a8a changed: offline -> online
+2026-04-23 12:30:38,124 - HeartbeatTimeoutTestV2 - INFO - Set device TEST_1776918638_5a8a8a last_seen to 30s ago (current status: online)

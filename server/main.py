@@ -8,6 +8,7 @@ from sqlalchemy.orm import sessionmaker, Session
 from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
+from collections import deque
 import os
 import uuid
 import hashlib
@@ -18,6 +19,9 @@ import re
 import json
 import struct
 import logging
+import threading
+import asyncio
+import atexit
 
 logging.basicConfig(
     level=logging.INFO,
@@ -32,7 +36,9 @@ from .models import (
 )
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
-HEARTBEAT_TIMEOUT = 120
+PENDING_OFFLINE_THRESHOLD = 60
+OFFLINE_THRESHOLD = 120
+HEARTBEAT_TIMEOUT = OFFLINE_THRESHOLD
 CHECK_INTERVAL = 30
 COMMAND_TTL_SECONDS = 600
 SIGNATURE_TIMESTAMP_TOLERANCE = 60
@@ -48,6 +54,126 @@ scheduler = AsyncIOScheduler()
 
 TEMPERATURE_THRESHOLD = 50
 ALERT_CONSECUTIVE_THRESHOLD = 3
+
+MAX_MEMORY_EVENTS = 50
+WEBHOOK_URL = os.getenv("DEVICE_WEBHOOK_URL", "http://localhost:8080/api/device-status")
+WEBHOOK_TIMEOUT = 5
+
+memory_event_queue = deque(maxlen=MAX_MEMORY_EVENTS)
+memory_event_lock = threading.Lock()
+
+class NotificationEngine:
+    def __init__(self):
+        self.webhook_url = WEBHOOK_URL
+        self.webhook_timeout = WEBHOOK_TIMEOUT
+        self.enabled = False
+        self._lock = threading.Lock()
+    
+    def _print_alert_banner(self, device_id: str, event_type: str, details: dict):
+        banner = "\n"
+        banner += "╔" + "═" * 78 + "╗\n"
+        banner += "║" + " " * 78 + "║\n"
+        
+        if event_type == "offline":
+            banner += "║  ⚠️  DEVICE OFFLINE ALERT  ⚠️" + " " * 42 + "║\n"
+        elif event_type == "pending_offline":
+            banner += "║  ⚠️  DEVICE PENDING OFFLINE WARNING  ⚠️" + " " * 33 + "║\n"
+        elif event_type == "online":
+            banner += "║  ✅  DEVICE ONLINE  ✅" + " " * 47 + "║\n"
+        
+        banner += "║" + " " * 78 + "║\n"
+        banner += f"║  Device ID: {device_id:<63}║\n"
+        banner += "║" + "-" * 78 + "║\n"
+        
+        for key, value in details.items():
+            value_str = str(value)
+            if len(value_str) > 45:
+                value_str = value_str[:42] + "..."
+            banner += f"║  {key}: {value_str:<55 - len(key)}║\n"
+        
+        banner += "║" + " " * 78 + "║\n"
+        banner += "╚" + "═" * 78 + "╝\n"
+        
+        print(banner)
+    
+    def _call_webhook(self, device_id: str, event_type: str, details: dict):
+        if not self.enabled:
+            logger.debug(f"[NotificationEngine] Webhook disabled, skipping for device {device_id}")
+            return
+        
+        try:
+            import httpx
+            
+            payload = {
+                "device_id": device_id,
+                "event_type": event_type,
+                "timestamp": datetime.utcnow().isoformat(),
+                "details": details
+            }
+            
+            logger.info(f"[NotificationEngine] Calling webhook for device {device_id}, event: {event_type}")
+            logger.info(f"[NotificationEngine] Webhook URL: {self.webhook_url}")
+            logger.info(f"[NotificationEngine] Payload: {json.dumps(payload, indent=2)}")
+            
+            logger.info(f"[NotificationEngine] Webhook call simulated (would be real in production)")
+            
+        except ImportError:
+            logger.warning(f"[NotificationEngine] httpx not installed, webhook call skipped")
+        except Exception as e:
+            logger.error(f"[NotificationEngine] Webhook call failed: {e}")
+    
+    def notify(self, device_id: str, event_type: str, old_status: str = None, 
+               new_status: str = None, reason: str = None, details: dict = None):
+        with self._lock:
+            event_details = {
+                "old_status": old_status,
+                "new_status": new_status,
+                "reason": reason,
+                **(details or {})
+            }
+            
+            self._print_alert_banner(device_id, event_type, event_details)
+            
+            if event_type == "offline":
+                self._call_webhook(device_id, event_type, event_details)
+            
+            logger.info(f"[NotificationEngine] Notification sent: device={device_id}, event={event_type}")
+
+notification_engine = NotificationEngine()
+
+def add_event_to_memory(event: dict):
+    with memory_event_lock:
+        event["_added_at"] = datetime.utcnow().isoformat()
+        memory_event_queue.append(event)
+        logger.debug(f"[MemoryQueue] Added event to memory queue, queue size: {len(memory_event_queue)}")
+
+def get_events_from_memory(device_id: str = None, event_type: str = None, 
+                            since: datetime = None, limit: int = 100) -> list:
+    with memory_event_lock:
+        events = list(memory_event_queue)
+    
+    filtered = []
+    for event in events:
+        if device_id and event.get("device_id") != device_id:
+            continue
+        if event_type and event.get("event_type") != event_type:
+            continue
+        if since:
+            added_at = event.get("_added_at")
+            if added_at:
+                try:
+                    event_dt = datetime.fromisoformat(added_at)
+                    if event_dt < since:
+                        continue
+                except ValueError:
+                    continue
+        
+        filtered.append(event)
+        
+        if len(filtered) >= limit:
+            break
+    
+    return filtered
 
 def parse_hex_payload(raw_payload: str, parse_config: dict) -> dict:
     """
@@ -388,16 +514,41 @@ def record_status_event(
     reason: str = None,
     details: dict = None
 ):
+    event_id = str(uuid.uuid4())
+    event_details = details or {}
+    
     event = DeviceStatusEvent(
-        id=str(uuid.uuid4()),
+        id=event_id,
         device_id=device_id,
         event_type=event_type,
         old_status=old_status,
         new_status=new_status,
         reason=reason,
-        details=details or {}
+        details=event_details
     )
     db.add(event)
+    
+    memory_event = {
+        "id": event_id,
+        "device_id": device_id,
+        "event_type": event_type,
+        "old_status": old_status,
+        "new_status": new_status,
+        "reason": reason,
+        "details": event_details,
+        "created_at": datetime.utcnow().isoformat()
+    }
+    add_event_to_memory(memory_event)
+    
+    notification_engine.notify(
+        device_id=device_id,
+        event_type=event_type,
+        old_status=old_status,
+        new_status=new_status,
+        reason=reason,
+        details=event_details
+    )
+    
     logger.info(f"[StatusEvent] Device {device_id}: {event_type} - {old_status} -> {new_status}. Reason: {reason}")
 
 def check_all_devices_status():
@@ -407,6 +558,8 @@ def check_all_devices_status():
         
         now = datetime.utcnow()
         updated_count = 0
+        pending_count = 0
+        offline_count = 0
         alert_count = 0
         
         for device in devices:
@@ -414,27 +567,96 @@ def check_all_devices_status():
             
             if last_active_time is not None:
                 time_since_active = (now - last_active_time).total_seconds()
+                old_status = device.status.value
                 
-                if device.status == DeviceStatus.ONLINE and time_since_active > HEARTBEAT_TIMEOUT:
-                    old_status = device.status.value
-                    device.status = DeviceStatus.OFFLINE
-                    new_status = device.status.value
-                    updated_count += 1
+                if device.status == DeviceStatus.ONLINE:
+                    if time_since_active > PENDING_OFFLINE_THRESHOLD and time_since_active <= OFFLINE_THRESHOLD:
+                        device.status = DeviceStatus.PENDING_OFFLINE
+                        new_status = device.status.value
+                        pending_count += 1
+                        updated_count += 1
+                        
+                        record_status_event(
+                            db,
+                            device.device_id,
+                            "pending_offline",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason=f"No heartbeat for {time_since_active:.1f} seconds (pending threshold: {PENDING_OFFLINE_THRESHOLD}s)",
+                            details={
+                                "last_active_time": last_active_time.isoformat() if last_active_time else None,
+                                "pending_threshold": PENDING_OFFLINE_THRESHOLD,
+                                "offline_threshold": OFFLINE_THRESHOLD,
+                                "time_since_active": time_since_active
+                            }
+                        )
+                        logger.warning(
+                            f"[DevicePendingOffline] Device {device.device_id} marked as PENDING_OFFLINE. "
+                            f"No activity for {time_since_active:.1f}s (threshold: {PENDING_OFFLINE_THRESHOLD}s). "
+                            f"Will be marked OFFLINE in {OFFLINE_THRESHOLD - time_since_active:.1f}s."
+                        )
                     
-                    record_status_event(
-                        db,
-                        device.device_id,
-                        "offline",
-                        old_status=old_status,
-                        new_status=new_status,
-                        reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {HEARTBEAT_TIMEOUT}s)",
-                        details={
-                            "last_active_time": last_active_time.isoformat() if last_active_time else None,
-                            "timeout_seconds": HEARTBEAT_TIMEOUT,
-                            "time_since_active": time_since_active
-                        }
-                    )
-                    logger.warning(f"[DeviceOffline] Device {device.device_id} marked as OFFLINE. No activity for {time_since_active:.1f} seconds")
+                    elif time_since_active > OFFLINE_THRESHOLD:
+                        device.status = DeviceStatus.OFFLINE
+                        new_status = device.status.value
+                        offline_count += 1
+                        updated_count += 1
+                        
+                        record_status_event(
+                            db,
+                            device.device_id,
+                            "offline",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {OFFLINE_THRESHOLD}s)",
+                            details={
+                                "last_active_time": last_active_time.isoformat() if last_active_time else None,
+                                "timeout_seconds": OFFLINE_THRESHOLD,
+                                "time_since_active": time_since_active
+                            }
+                        )
+                        logger.critical(
+                            f"\n{'='*60}\n"
+                            f"[DEVICE OFFLINE WARNING] Device {device.device_id}\n"
+                            f"{'='*60}\n"
+                            f"  Status: {old_status} -> {new_status}\n"
+                            f"  Last Active: {last_active_time}\n"
+                            f"  Inactive For: {time_since_active:.1f}s\n"
+                            f"  Threshold: {OFFLINE_THRESHOLD}s\n"
+                            f"{'='*60}\n"
+                        )
+                
+                elif device.status == DeviceStatus.PENDING_OFFLINE:
+                    if time_since_active > OFFLINE_THRESHOLD:
+                        device.status = DeviceStatus.OFFLINE
+                        new_status = device.status.value
+                        offline_count += 1
+                        updated_count += 1
+                        
+                        record_status_event(
+                            db,
+                            device.device_id,
+                            "offline",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {OFFLINE_THRESHOLD}s, was pending)",
+                            details={
+                                "last_active_time": last_active_time.isoformat() if last_active_time else None,
+                                "timeout_seconds": OFFLINE_THRESHOLD,
+                                "time_since_active": time_since_active,
+                                "was_pending": True
+                            }
+                        )
+                        logger.critical(
+                            f"\n{'='*60}\n"
+                            f"[DEVICE OFFLINE WARNING] Device {device.device_id}\n"
+                            f"{'='*60}\n"
+                            f"  Status: {old_status} -> {new_status}\n"
+                            f"  Last Active: {last_active_time}\n"
+                            f"  Inactive For: {time_since_active:.1f}s\n"
+                            f"  Note: Was in PENDING_OFFLINE state\n"
+                            f"{'='*60}\n"
+                        )
             
             latest_data = get_latest_device_data(device.device_id, db)
             if latest_data and latest_data.payload:
@@ -480,12 +702,15 @@ def check_all_devices_status():
         
         if updated_count > 0 or alert_count > 0:
             db.commit()
-            if updated_count > 0:
-                print(f"[Scheduler] Updated {updated_count} devices to OFFLINE status")
+            if pending_count > 0:
+                print(f"[Scheduler] Marked {pending_count} devices as PENDING_OFFLINE")
+            if offline_count > 0:
+                print(f"[Scheduler] Marked {offline_count} devices as OFFLINE")
             if alert_count > 0:
                 print(f"[Scheduler] Triggered {alert_count} temperature alerts")
     except Exception as e:
         print(f"[Scheduler] Error checking devices: {e}")
+        logger.error(f"[Scheduler] Error checking devices: {e}", exc_info=True)
     finally:
         db.close()
 
@@ -1030,11 +1255,47 @@ def get_all_devices(db: Session = Depends(get_db)):
 @app.get("/devices/status-events")
 def get_status_events(
     device_id: str = Query(None, description="Filter by device ID"),
-    event_type: str = Query(None, description="Filter by event type (online/offline)"),
+    event_type: str = Query(None, description="Filter by event type (online/offline/pending_offline)"),
     since: str = Query(None, description="Only return events after this timestamp (ISO format)"),
     limit: int = Query(100, ge=1, le=1000, description="Maximum number of events to return"),
+    use_memory: bool = Query(True, description="Use memory cache for faster response"),
     db: Session = Depends(get_db)
 ):
+    since_dt = None
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid 'since' format. Use ISO format: YYYY-MM-DDTHH:MM:SS"
+            )
+    
+    if use_memory and limit <= MAX_MEMORY_EVENTS:
+        logger.debug(f"[StatusEvents] Using memory queue for query (limit={limit})")
+        memory_events = get_events_from_memory(
+            device_id=device_id,
+            event_type=event_type,
+            since=since_dt,
+            limit=limit
+        )
+        
+        if memory_events:
+            result = []
+            for event in memory_events:
+                event_copy = dict(event)
+                event_copy.pop("_added_at", None)
+                result.append(event_copy)
+            
+            return {
+                "events": result,
+                "count": len(result),
+                "limit": limit,
+                "source": "memory_cache"
+            }
+        
+        logger.debug(f"[StatusEvents] Memory queue empty, falling back to database")
+    
     query = db.query(DeviceStatusEvent)
     
     if device_id:
@@ -1043,15 +1304,8 @@ def get_status_events(
     if event_type:
         query = query.filter(DeviceStatusEvent.event_type == event_type)
     
-    if since:
-        try:
-            since_dt = datetime.fromisoformat(since)
-            query = query.filter(DeviceStatusEvent.created_at >= since_dt)
-        except ValueError:
-            raise HTTPException(
-                status_code=400,
-                detail="Invalid 'since' format. Use ISO format: YYYY-MM-DDTHH:MM:SS"
-            )
+    if since_dt:
+        query = query.filter(DeviceStatusEvent.created_at >= since_dt)
     
     events = query.order_by(desc(DeviceStatusEvent.created_at)).limit(limit).all()
     
@@ -1071,7 +1325,8 @@ def get_status_events(
     return {
         "events": result,
         "count": len(result),
-        "limit": limit
+        "limit": limit,
+        "source": "database"
     }
 
 def check_device_status(device: Device):
@@ -1082,8 +1337,14 @@ def check_device_status(device: Device):
     now = datetime.utcnow()
     time_since_active = (now - last_active_time).total_seconds()
     
-    if time_since_active > HEARTBEAT_TIMEOUT:
-        device.status = DeviceStatus.OFFLINE
+    if device.status == DeviceStatus.ONLINE:
+        if time_since_active > PENDING_OFFLINE_THRESHOLD and time_since_active <= OFFLINE_THRESHOLD:
+            device.status = DeviceStatus.PENDING_OFFLINE
+        elif time_since_active > OFFLINE_THRESHOLD:
+            device.status = DeviceStatus.OFFLINE
+    elif device.status == DeviceStatus.PENDING_OFFLINE:
+        if time_since_active > OFFLINE_THRESHOLD:
+            device.status = DeviceStatus.OFFLINE
 
 def hash_password(password: str) -> str:
     return hashlib.sha256(password.encode('utf-8')).hexdigest()
