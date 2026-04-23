@@ -22,6 +22,8 @@ import logging
 import threading
 import asyncio
 import atexit
+import signal
+from pathlib import Path
 
 logging.basicConfig(
     level=logging.INFO,
@@ -787,35 +789,76 @@ HIGH_RISK_OPERATIONS = {
     OperationType.USER_DELETE
 }
 
-def calculate_changes(old_values: dict, new_values: dict) -> dict:
+SENSITIVE_FIELDS = {
+    "secret_key",
+    "password_hash",
+    "password",
+    "api_key",
+    "token",
+    "credential",
+    "auth_token"
+}
+
+AUDIT_WAL_FILE = Path("./audit_wal.log")
+AUDIT_WAL_LOCK = threading.Lock()
+
+def mask_sensitive_field(key: str, value) -> str:
+    key_lower = key.lower()
+    for sensitive in SENSITIVE_FIELDS:
+        if sensitive in key_lower:
+            if isinstance(value, str) and len(value) > 0:
+                return "******"
+            elif isinstance(value, (int, float)):
+                return "******"
+            return None
+    return value
+
+def sanitize_sensitive_data(data: dict) -> dict:
+    if data is None:
+        return None
+    
+    sanitized = {}
+    for key, value in data.items():
+        if isinstance(value, dict):
+            sanitized[key] = sanitize_sensitive_data(value)
+        elif isinstance(value, list):
+            sanitized[key] = [
+                sanitize_sensitive_data(item) if isinstance(item, dict) else item
+                for item in value
+            ]
+        else:
+            sanitized[key] = mask_sensitive_field(key, value)
+    return sanitized
+
+def calculate_changed_fields(
+    old_values: dict = None,
+    new_values: dict = None
+) -> dict:
     if old_values is None:
         old_values = {}
     if new_values is None:
         new_values = {}
     
-    changes = {
-        "added": {},
-        "removed": {},
-        "modified": {}
-    }
+    changed_fields = {}
     
     all_keys = set(old_values.keys()) | set(new_values.keys())
     
     for key in all_keys:
         if key not in old_values:
-            changes["added"][key] = new_values[key]
+            sanitized_new = mask_sensitive_field(key, new_values[key])
+            changed_fields[key] = [None, sanitized_new]
         elif key not in new_values:
-            changes["removed"][key] = old_values[key]
+            sanitized_old = mask_sensitive_field(key, old_values[key])
+            changed_fields[key] = [sanitized_old, None]
         elif old_values[key] != new_values[key]:
-            changes["modified"][key] = {
-                "old": old_values[key],
-                "new": new_values[key]
-            }
+            sanitized_old = mask_sensitive_field(key, old_values[key])
+            sanitized_new = mask_sensitive_field(key, new_values[key])
+            changed_fields[key] = [sanitized_old, sanitized_new]
     
-    if not changes["added"] and not changes["removed"] and not changes["modified"]:
+    if not changed_fields:
         return None
     
-    return changes
+    return changed_fields
 
 def serialize_model(obj) -> dict:
     if obj is None:
@@ -828,7 +871,87 @@ def serialize_model(obj) -> dict:
             result[column.name] = str(value)
         else:
             result[column.name] = value
-    return result
+    
+    return sanitize_sensitive_data(result)
+
+def write_audit_wal(entry: dict):
+    with AUDIT_WAL_LOCK:
+        try:
+            with open(AUDIT_WAL_FILE, "a", encoding="utf-8") as f:
+                entry_copy = dict(entry)
+                entry_copy["operation_type"] = entry_copy["operation_type"].value
+                entry_copy["queued_at"] = entry_copy["queued_at"].isoformat()
+                f.write(json.dumps(entry_copy, ensure_ascii=False) + "\n")
+                f.flush()
+                os.fsync(f.fileno())
+            logger.debug(f"[AuditWAL] Written to WAL: {entry_copy['operation_type']}")
+        except Exception as e:
+            logger.error(f"[AuditWAL] Failed to write WAL: {e}")
+
+def load_audit_wal() -> list:
+    entries = []
+    if not AUDIT_WAL_FILE.exists():
+        return entries
+    
+    with AUDIT_WAL_LOCK:
+        try:
+            with open(AUDIT_WAL_FILE, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    try:
+                        entry = json.loads(line)
+                        entry["operation_type"] = OperationType(entry["operation_type"])
+                        if "queued_at" in entry:
+                            entry["queued_at"] = datetime.fromisoformat(entry["queued_at"])
+                        entries.append(entry)
+                    except (json.JSONDecodeError, ValueError) as e:
+                        logger.error(f"[AuditWAL] Failed to parse WAL entry: {e}")
+                        continue
+        except Exception as e:
+            logger.error(f"[AuditWAL] Failed to load WAL: {e}")
+    
+    return entries
+
+def clear_audit_wal():
+    with AUDIT_WAL_LOCK:
+        try:
+            if AUDIT_WAL_FILE.exists():
+                AUDIT_WAL_FILE.unlink()
+                logger.info("[AuditWAL] WAL file cleared")
+        except Exception as e:
+            logger.error(f"[AuditWAL] Failed to clear WAL: {e}")
+
+def recover_audit_wal(db: Session) -> int:
+    entries = load_audit_wal()
+    if not entries:
+        return 0
+    
+    recovered_count = 0
+    for entry in entries:
+        try:
+            create_audit_log(
+                db=db,
+                operation_type=entry["operation_type"],
+                operation_desc=entry.get("operation_desc"),
+                user_id=entry.get("user_id"),
+                device_id=entry.get("device_id"),
+                ip_address=entry.get("ip_address"),
+                old_values=entry.get("old_values"),
+                new_values=entry.get("new_values"),
+                status=entry.get("status", "success"),
+                error_message=entry.get("error_message")
+            )
+            recovered_count += 1
+        except Exception as e:
+            logger.error(f"[AuditWAL] Failed to recover entry: {e}")
+    
+    if recovered_count > 0:
+        clear_audit_wal()
+        logger.info(f"[AuditWAL] Recovered {recovered_count} audit logs from WAL")
+    
+    return recovered_count
 
 def create_audit_log(
     db: Session,
@@ -843,7 +966,10 @@ def create_audit_log(
     error_message: str = None
 ) -> AuditLog:
     
-    changes = calculate_changes(old_values, new_values)
+    sanitized_old = sanitize_sensitive_data(old_values)
+    sanitized_new = sanitize_sensitive_data(new_values)
+    
+    changed_fields = calculate_changed_fields(sanitized_old, sanitized_new)
     
     risk_level = RiskLevel.HIGH if operation_type in HIGH_RISK_OPERATIONS else RiskLevel.MEDIUM
     
@@ -855,9 +981,7 @@ def create_audit_log(
         device_id=device_id,
         ip_address=ip_address,
         risk_level=risk_level,
-        old_values=old_values,
-        new_values=new_values,
-        changes=changes,
+        changed_fields=changed_fields,
         status=status,
         error_message=error_message,
         created_at=datetime.utcnow()
@@ -876,35 +1000,33 @@ def create_audit_log(
 
 def _print_high_risk_alert(audit_log: AuditLog):
     banner = "\n"
-    banner += "╔" + "═" * 78 + "╗\n"
-    banner += "║" + " " * 78 + "║\n"
-    banner += "║  🚨  HIGH RISK OPERATION DETECTED  🚨" + " " * 34 + "║\n"
-    banner += "║" + " " * 78 + "║\n"
-    banner += f"║  Operation: {audit_log.operation_type.value:<53}║\n"
+    banner += "+" + "=" * 78 + "+\n"
+    banner += "|" + " " * 78 + "|\n"
+    banner += "|  [WARNING] HIGH RISK OPERATION DETECTED" + " " * 38 + "|\n"
+    banner += "|" + " " * 78 + "|\n"
+    banner += f"|  Operation: {audit_log.operation_type.value:<53}|\n"
     if audit_log.operation_desc:
-        banner += f"║  Description: {audit_log.operation_desc:<51}║\n"
-    banner += f"║  User ID: {audit_log.user_id or 'N/A':<57}║\n"
-    banner += f"║  Device ID: {audit_log.device_id or 'N/A':<55}║\n"
-    banner += f"║  IP Address: {audit_log.ip_address or 'N/A':<54}║\n"
-    banner += f"║  Timestamp: {audit_log.created_at:<54}║\n"
-    if audit_log.changes:
-        banner += "║  Changes: " + " " * 64 + "║\n"
-        if audit_log.changes.get("removed"):
-            for key, value in audit_log.changes["removed"].items():
-                val_str = str(value)[:40]
-                banner += f"║    - REMOVED: {key} = {val_str:<38}║\n"
-        if audit_log.changes.get("modified"):
-            for key, diff in audit_log.changes["modified"].items():
-                old_str = str(diff.get('old', ''))[:20]
-                new_str = str(diff.get('new', ''))[:20]
-                banner += f"║    - MODIFIED: {key}: {old_str} -> {new_str:<25}║\n"
-    banner += "║" + " " * 78 + "║\n"
-    banner += "╚" + "═" * 78 + "╝\n"
+        banner += f"|  Description: {audit_log.operation_desc:<51}|\n"
+    banner += f"|  User ID: {audit_log.user_id or 'N/A':<57}|\n"
+    banner += f"|  Device ID: {audit_log.device_id or 'N/A':<55}|\n"
+    banner += f"|  IP Address: {audit_log.ip_address or 'N/A':<54}|\n"
+    banner += f"|  Timestamp: {audit_log.created_at:<54}|\n"
+    if audit_log.changed_fields:
+        banner += "|  Changed Fields: " + " " * 61 + "|\n"
+        for key, values in audit_log.changed_fields.items():
+            old_val = values[0] if values[0] is not None else "(None)"
+            new_val = values[1] if values[1] is not None else "(None)"
+            old_str = str(old_val)[:25]
+            new_str = str(new_val)[:25]
+            banner += f"|    - {key}: {old_str} -> {new_str:<30}|\n"
+    banner += "|" + " " * 78 + "|\n"
+    banner += "+" + "=" * 78 + "+\n"
     
     print(banner)
 
-audit_log_queue = deque(maxlen=1000)
+audit_log_queue = deque(maxlen=10000)
 audit_log_lock = threading.Lock()
+audit_shutdown_event = threading.Event()
 
 def enqueue_audit_log(
     operation_type: OperationType,
@@ -930,13 +1052,16 @@ def enqueue_audit_log(
         "queued_at": datetime.utcnow()
     }
     
+    write_audit_wal(audit_entry)
+    
     with audit_log_lock:
         audit_log_queue.append(audit_entry)
     
     logger.debug(f"[AuditQueue] Enqueued: type={operation_type.value}")
 
-def process_audit_queue():
+def flush_audit_queue():
     db = None
+    processed_count = 0
     try:
         db = SessionLocal()
         
@@ -958,31 +1083,87 @@ def process_audit_queue():
                     status=entry.get("status", "success"),
                     error_message=entry.get("error_message")
                 )
+                processed_count += 1
             except Exception as e:
                 logger.error(f"[AuditQueue] Failed to process audit entry: {e}")
         
         db.commit()
         
+        if processed_count > 0:
+            clear_audit_wal()
+            logger.info(f"[AuditQueue] Flushed {processed_count} audit logs")
+        
     except Exception as e:
-        logger.error(f"[AuditQueue] Error processing audit queue: {e}")
+        logger.error(f"[AuditQueue] Error flushing audit queue: {e}")
+    finally:
+        if db:
+            db.close()
+    
+    return processed_count
+
+def process_audit_queue():
+    flush_audit_queue()
+
+def audit_shutdown_handler(signum, frame):
+    logger.warning(f"[AuditShutdown] Received shutdown signal {signum}, flushing audit queue...")
+    audit_shutdown_event.set()
+    
+    flushed = flush_audit_queue()
+    
+    logger.warning(f"[AuditShutdown] Audit shutdown complete. Flushed {flushed} logs.")
+    
+    sys.exit(0)
+
+def register_audit_shutdown_handlers():
+    try:
+        signal.signal(signal.SIGTERM, audit_shutdown_handler)
+        signal.signal(signal.SIGINT, audit_shutdown_handler)
+        logger.info("[AuditShutdown] Signal handlers registered")
+    except Exception as e:
+        logger.warning(f"[AuditShutdown] Failed to register signal handlers: {e}")
+    
+    def atexit_flush():
+        if not audit_shutdown_event.is_set():
+            logger.warning("[AuditShutdown] Atexit: Flushing audit queue...")
+            flush_audit_queue()
+    
+    atexit.register(atexit_flush)
+
+def recover_audit_logs_on_startup():
+    db = None
+    try:
+        db = SessionLocal()
+        recovered = recover_audit_wal(db)
+        if recovered > 0:
+            logger.warning(f"[AuditRecovery] Recovered {recovered} audit logs from WAL during startup")
+        return recovered
+    except Exception as e:
+        logger.error(f"[AuditRecovery] Failed to recover audit logs: {e}")
+        return 0
     finally:
         if db:
             db.close()
 
 def start_audit_processor():
+    recover_audit_logs_on_startup()
+    
+    register_audit_shutdown_handlers()
+    
     def run_processor():
-        while True:
+        while not audit_shutdown_event.is_set():
             time.sleep(1)
             with audit_log_lock:
-                if len(audit_log_queue) > 0:
-                    break
-            continue
+                queue_size = len(audit_log_queue)
+            
+            if queue_size >= 100:
+                flush_audit_queue()
+            elif queue_size > 0:
+                time.sleep(2)
+                flush_audit_queue()
         
-        while True:
-            process_audit_queue()
-            time.sleep(5)
+        logger.info("[AuditProcessor] Processor thread stopped")
     
-    thread = threading.Thread(target=run_processor, daemon=True)
+    thread = threading.Thread(target=run_processor, daemon=False)
     thread.start()
     logger.info("[AuditProcessor] Started audit log processor thread")
 
@@ -2408,9 +2589,7 @@ def get_audit_logs(
             "device_id": log.device_id,
             "ip_address": log.ip_address,
             "risk_level": log.risk_level.value if log.risk_level else None,
-            "old_values": log.old_values,
-            "new_values": log.new_values,
-            "changes": log.changes,
+            "changed_fields": log.changed_fields,
             "status": log.status,
             "error_message": log.error_message,
             "created_at": log.created_at.isoformat() if log.created_at else None
