@@ -23,6 +23,7 @@ import threading
 import asyncio
 import atexit
 import signal
+import enum
 from pathlib import Path
 
 logging.basicConfig(
@@ -799,8 +800,11 @@ SENSITIVE_FIELDS = {
     "auth_token"
 }
 
-AUDIT_WAL_FILE = Path("./audit_wal.log")
+AUDIT_WAL_DIR = Path("./audit_wal")
 AUDIT_WAL_LOCK = threading.Lock()
+
+def ensure_wal_dir():
+    AUDIT_WAL_DIR.mkdir(parents=True, exist_ok=True)
 
 def mask_sensitive_field(key: str, value) -> str:
     key_lower = key.lower()
@@ -810,27 +814,77 @@ def mask_sensitive_field(key: str, value) -> str:
                 return "******"
             elif isinstance(value, (int, float)):
                 return "******"
-            return None
+            return value
     return value
 
-def sanitize_sensitive_data(data: dict) -> dict:
+def sanitize_sensitive_data(data) -> dict:
     if data is None:
         return None
     
-    sanitized = {}
-    for key, value in data.items():
-        if isinstance(value, dict):
-            sanitized[key] = sanitize_sensitive_data(value)
-        elif isinstance(value, list):
-            sanitized[key] = [
-                sanitize_sensitive_data(item) if isinstance(item, dict) else item
-                for item in value
-            ]
-        else:
-            sanitized[key] = mask_sensitive_field(key, value)
-    return sanitized
+    if isinstance(data, dict):
+        sanitized = {}
+        for key, value in data.items():
+            key_lower = key.lower()
+            is_sensitive = any(sensitive in key_lower for sensitive in SENSITIVE_FIELDS)
+            if is_sensitive:
+                if isinstance(value, (str, int, float)):
+                    sanitized[key] = mask_sensitive_field(key, value)
+                else:
+                    sanitized[key] = sanitize_sensitive_data(value)
+            else:
+                sanitized[key] = sanitize_sensitive_data(value)
+        return sanitized
+    
+    elif isinstance(data, list):
+        return [sanitize_sensitive_data(item) for item in data]
+    
+    else:
+        return data
 
-def calculate_changed_fields(
+def _deep_diff_values(old_val, new_val, path: str, result: dict):
+    if old_val == new_val:
+        return
+    
+    if isinstance(old_val, dict) and isinstance(new_val, dict):
+        old_keys = set(old_val.keys())
+        new_keys = set(new_val.keys())
+        all_keys = old_keys | new_keys
+        
+        for key in all_keys:
+            nested_path = f"{path}.{key}" if path else key
+            if key not in old_val:
+                if isinstance(new_val[key], (dict, list)):
+                    _deep_diff_values({}, new_val[key], nested_path, result)
+                else:
+                    sanitized = mask_sensitive_field(key, new_val[key])
+                    result[nested_path] = [None, sanitized]
+            elif key not in new_val:
+                if isinstance(old_val[key], (dict, list)):
+                    _deep_diff_values(old_val[key], {}, nested_path, result)
+                else:
+                    sanitized = mask_sensitive_field(key, old_val[key])
+                    result[nested_path] = [sanitized, None]
+            else:
+                _deep_diff_values(old_val[key], new_val[key], nested_path, result)
+    
+    elif isinstance(old_val, list) and isinstance(new_val, list):
+        if len(old_val) != len(new_val):
+            key = path.split(".")[-1] if "." in path else path
+            sanitized_old = sanitize_sensitive_data(old_val)
+            sanitized_new = sanitize_sensitive_data(new_val)
+            result[path] = [sanitized_old, sanitized_new]
+        else:
+            for i, (ov, nv) in enumerate(zip(old_val, new_val)):
+                nested_path = f"{path}[{i}]"
+                _deep_diff_values(ov, nv, nested_path, result)
+    
+    else:
+        key = path.split(".")[-1] if "." in path else path
+        sanitized_old = mask_sensitive_field(key, old_val)
+        sanitized_new = mask_sensitive_field(key, new_val)
+        result[path] = [sanitized_old, sanitized_new]
+
+def calculate_changed_fields_deep(
     old_values: dict = None,
     new_values: dict = None
 ) -> dict:
@@ -840,25 +894,38 @@ def calculate_changed_fields(
         new_values = {}
     
     changed_fields = {}
-    
     all_keys = set(old_values.keys()) | set(new_values.keys())
     
     for key in all_keys:
         if key not in old_values:
-            sanitized_new = mask_sensitive_field(key, new_values[key])
-            changed_fields[key] = [None, sanitized_new]
+            new_val = new_values[key]
+            if isinstance(new_val, (dict, list)):
+                _deep_diff_values({}, new_val, key, changed_fields)
+            else:
+                sanitized = mask_sensitive_field(key, new_val)
+                changed_fields[key] = [None, sanitized]
         elif key not in new_values:
-            sanitized_old = mask_sensitive_field(key, old_values[key])
-            changed_fields[key] = [sanitized_old, None]
-        elif old_values[key] != new_values[key]:
-            sanitized_old = mask_sensitive_field(key, old_values[key])
-            sanitized_new = mask_sensitive_field(key, new_values[key])
-            changed_fields[key] = [sanitized_old, sanitized_new]
+            old_val = old_values[key]
+            if isinstance(old_val, (dict, list)):
+                _deep_diff_values(old_val, {}, key, changed_fields)
+            else:
+                sanitized = mask_sensitive_field(key, old_val)
+                changed_fields[key] = [sanitized, None]
+        else:
+            old_val = old_values[key]
+            new_val = new_values[key]
+            _deep_diff_values(old_val, new_val, key, changed_fields)
     
     if not changed_fields:
         return None
     
     return changed_fields
+
+def calculate_changed_fields(
+    old_values: dict = None,
+    new_values: dict = None
+) -> dict:
+    return calculate_changed_fields_deep(old_values, new_values)
 
 def serialize_model(obj) -> dict:
     if obj is None:
@@ -874,54 +941,89 @@ def serialize_model(obj) -> dict:
     
     return sanitize_sensitive_data(result)
 
-def write_audit_wal(entry: dict):
+def _atomic_write_wal_file(entry_json: str, entry_id: str) -> Path:
+    ensure_wal_dir()
+    
+    timestamp = int(time.time() * 1000000)
+    temp_file = AUDIT_WAL_DIR / f".tmp_{timestamp}_{entry_id}.json"
+    final_file = AUDIT_WAL_DIR / f"wal_{timestamp}_{entry_id}.json"
+    
+    with open(temp_file, "w", encoding="utf-8") as f:
+        f.write(entry_json)
+        f.flush()
+        os.fsync(f.fileno())
+    
+    temp_file.replace(final_file)
+    
+    return final_file
+
+def write_audit_wal(entry: dict) -> Path:
     with AUDIT_WAL_LOCK:
         try:
-            with open(AUDIT_WAL_FILE, "a", encoding="utf-8") as f:
-                entry_copy = dict(entry)
-                entry_copy["operation_type"] = entry_copy["operation_type"].value
-                entry_copy["queued_at"] = entry_copy["queued_at"].isoformat()
-                f.write(json.dumps(entry_copy, ensure_ascii=False) + "\n")
-                f.flush()
-                os.fsync(f.fileno())
-            logger.debug(f"[AuditWAL] Written to WAL: {entry_copy['operation_type']}")
+            entry_copy = dict(entry)
+            entry_copy["operation_type"] = entry_copy["operation_type"].value
+            entry_copy["queued_at"] = entry_copy["queued_at"].isoformat()
+            
+            entry_id = entry_copy.get("id", str(uuid.uuid4()))
+            entry_json = json.dumps(entry_copy, ensure_ascii=False)
+            
+            final_file = _atomic_write_wal_file(entry_json, entry_id)
+            
+            logger.debug(f"[AuditWAL] Atomically written to WAL: {final_file.name}")
+            return final_file
+            
         except Exception as e:
             logger.error(f"[AuditWAL] Failed to write WAL: {e}")
+            raise
 
 def load_audit_wal() -> list:
+    ensure_wal_dir()
     entries = []
-    if not AUDIT_WAL_FILE.exists():
-        return entries
+    
+    wal_files = sorted(AUDIT_WAL_DIR.glob("wal_*.json"))
     
     with AUDIT_WAL_LOCK:
-        try:
-            with open(AUDIT_WAL_FILE, "r", encoding="utf-8") as f:
-                for line in f:
-                    line = line.strip()
-                    if not line:
-                        continue
-                    try:
-                        entry = json.loads(line)
-                        entry["operation_type"] = OperationType(entry["operation_type"])
-                        if "queued_at" in entry:
-                            entry["queued_at"] = datetime.fromisoformat(entry["queued_at"])
-                        entries.append(entry)
-                    except (json.JSONDecodeError, ValueError) as e:
-                        logger.error(f"[AuditWAL] Failed to parse WAL entry: {e}")
-                        continue
-        except Exception as e:
-            logger.error(f"[AuditWAL] Failed to load WAL: {e}")
+        for wal_file in wal_files:
+            try:
+                with open(wal_file, "r", encoding="utf-8") as f:
+                    content = f.read()
+                    entry = json.loads(content)
+                    entry["operation_type"] = OperationType(entry["operation_type"])
+                    if "queued_at" in entry:
+                        entry["queued_at"] = datetime.fromisoformat(entry["queued_at"])
+                    entry["_wal_file"] = wal_file
+                    entries.append(entry)
+            except (json.JSONDecodeError, ValueError) as e:
+                logger.error(f"[AuditWAL] Failed to parse WAL file {wal_file.name}: {e}")
+                continue
+            except Exception as e:
+                logger.error(f"[AuditWAL] Failed to load WAL file {wal_file.name}: {e}")
+                continue
     
     return entries
 
-def clear_audit_wal():
+def clear_wal_file(wal_file: Path):
     with AUDIT_WAL_LOCK:
         try:
-            if AUDIT_WAL_FILE.exists():
-                AUDIT_WAL_FILE.unlink()
-                logger.info("[AuditWAL] WAL file cleared")
+            if wal_file.exists():
+                wal_file.unlink()
+                logger.debug(f"[AuditWAL] Cleared WAL file: {wal_file.name}")
         except Exception as e:
-            logger.error(f"[AuditWAL] Failed to clear WAL: {e}")
+            logger.error(f"[AuditWAL] Failed to clear WAL file {wal_file.name}: {e}")
+
+def clear_audit_wal():
+    ensure_wal_dir()
+    wal_files = list(AUDIT_WAL_DIR.glob("wal_*.json"))
+    temp_files = list(AUDIT_WAL_DIR.glob(".tmp_*.json"))
+    
+    with AUDIT_WAL_LOCK:
+        for f in wal_files + temp_files:
+            try:
+                f.unlink()
+            except Exception as e:
+                logger.error(f"[AuditWAL] Failed to remove {f.name}: {e}")
+    
+    logger.info(f"[AuditWAL] Cleared {len(wal_files) + len(temp_files)} WAL files")
 
 def recover_audit_wal(db: Session) -> int:
     entries = load_audit_wal()
@@ -929,9 +1031,11 @@ def recover_audit_wal(db: Session) -> int:
         return 0
     
     recovered_count = 0
+    failed_entries = []
+    
     for entry in entries:
         try:
-            create_audit_log(
+            create_audit_log_sync(
                 db=db,
                 operation_type=entry["operation_type"],
                 operation_desc=entry.get("operation_desc"),
@@ -941,19 +1045,32 @@ def recover_audit_wal(db: Session) -> int:
                 old_values=entry.get("old_values"),
                 new_values=entry.get("new_values"),
                 status=entry.get("status", "success"),
-                error_message=entry.get("error_message")
+                error_message=entry.get("error_message"),
+                auto_commit=False
             )
+            
+            if "_wal_file" in entry:
+                clear_wal_file(entry["_wal_file"])
+            
             recovered_count += 1
+            
         except Exception as e:
             logger.error(f"[AuditWAL] Failed to recover entry: {e}")
+            failed_entries.append(entry)
+    
+    try:
+        db.commit()
+    except Exception as e:
+        logger.error(f"[AuditWAL] Failed to commit recovered logs: {e}")
+        db.rollback()
+        return 0
     
     if recovered_count > 0:
-        clear_audit_wal()
-        logger.info(f"[AuditWAL] Recovered {recovered_count} audit logs from WAL")
+        logger.warning(f"[AuditWAL] Recovered {recovered_count} audit logs from WAL")
     
     return recovered_count
 
-def create_audit_log(
+def create_audit_log_sync(
     db: Session,
     operation_type: OperationType,
     operation_desc: str = None,
@@ -963,7 +1080,8 @@ def create_audit_log(
     old_values: dict = None,
     new_values: dict = None,
     status: str = "success",
-    error_message: str = None
+    error_message: str = None,
+    auto_commit: bool = True
 ) -> AuditLog:
     
     sanitized_old = sanitize_sensitive_data(old_values)
@@ -988,15 +1106,132 @@ def create_audit_log(
     )
     
     db.add(audit_log)
-    db.commit()
-    db.refresh(audit_log)
     
-    logger.info(f"[AuditLog] Created: type={operation_type.value}, risk={risk_level.value}, device={device_id}")
+    if auto_commit:
+        db.commit()
+        db.refresh(audit_log)
+    
+    logger.info(f"[AuditLog] Sync created: type={operation_type.value}, risk={risk_level.value}, device={device_id}")
     
     if risk_level == RiskLevel.HIGH:
         _print_high_risk_alert(audit_log)
     
     return audit_log
+
+def create_audit_log(
+    db: Session,
+    operation_type: OperationType,
+    operation_desc: str = None,
+    user_id: str = None,
+    device_id: str = None,
+    ip_address: str = None,
+    old_values: dict = None,
+    new_values: dict = None,
+    status: str = "success",
+    error_message: str = None
+) -> AuditLog:
+    return create_audit_log_sync(
+        db=db,
+        operation_type=operation_type,
+        operation_desc=operation_desc,
+        user_id=user_id,
+        device_id=device_id,
+        ip_address=ip_address,
+        old_values=old_values,
+        new_values=new_values,
+        status=status,
+        error_message=error_message,
+        auto_commit=True
+    )
+
+class AuditedOperation:
+    def __init__(
+        self,
+        db: Session,
+        operation_type: OperationType,
+        user_id: str = None,
+        device_id: str = None,
+        ip_address: str = None,
+        operation_desc: str = None
+    ):
+        self.db = db
+        self.operation_type = operation_type
+        self.user_id = user_id
+        self.device_id = device_id
+        self.ip_address = ip_address
+        self.operation_desc = operation_desc
+        self.old_values = None
+        self.new_values = None
+        self.committed = False
+    
+    def set_old_values(self, values: dict):
+        self.old_values = dict(values) if values else None
+        return self
+    
+    def set_new_values(self, values: dict):
+        self.new_values = dict(values) if values else None
+        return self
+    
+    def __enter__(self):
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        if exc_type is not None:
+            logger.error(f"[AuditOperation] Operation failed: {exc_val}")
+            try:
+                create_audit_log_sync(
+                    db=self.db,
+                    operation_type=self.operation_type,
+                    operation_desc=f"FAILED: {self.operation_desc}",
+                    user_id=self.user_id,
+                    device_id=self.device_id,
+                    ip_address=self.ip_address,
+                    old_values=self.old_values,
+                    new_values=self.new_values,
+                    status="failed",
+                    error_message=str(exc_val),
+                    auto_commit=False
+                )
+            except Exception as e:
+                logger.error(f"[AuditOperation] Failed to log failure: {e}")
+            return False
+        
+        try:
+            create_audit_log_sync(
+                db=self.db,
+                operation_type=self.operation_type,
+                operation_desc=self.operation_desc,
+                user_id=self.user_id,
+                device_id=self.device_id,
+                ip_address=self.ip_address,
+                old_values=self.old_values,
+                new_values=self.new_values,
+                status="success",
+                auto_commit=False
+            )
+            self.committed = True
+            return True
+        except Exception as e:
+            logger.error(f"[AuditOperation] Failed to create audit log, rolling back: {e}")
+            self.db.rollback()
+            raise
+
+def audited_operation(
+    db: Session,
+    operation_type: OperationType,
+    user_id: str = None,
+    device_id: str = None,
+    ip_address: str = None,
+    operation_desc: str = None
+) -> AuditedOperation:
+    return AuditedOperation(
+        db=db,
+        operation_type=operation_type,
+        user_id=user_id,
+        device_id=device_id,
+        ip_address=ip_address,
+        operation_desc=operation_desc
+    )
 
 def _print_high_risk_alert(audit_log: AuditLog):
     banner = "\n"
@@ -1040,6 +1275,7 @@ def enqueue_audit_log(
     error_message: str = None
 ):
     audit_entry = {
+        "id": str(uuid.uuid4()),
         "operation_type": operation_type,
         "operation_desc": operation_desc,
         "user_id": user_id,
@@ -1071,7 +1307,7 @@ def flush_audit_queue():
         
         for entry in entries_to_process:
             try:
-                create_audit_log(
+                create_audit_log_sync(
                     db=db,
                     operation_type=entry["operation_type"],
                     operation_desc=entry.get("operation_desc"),
@@ -1081,7 +1317,8 @@ def flush_audit_queue():
                     old_values=entry.get("old_values"),
                     new_values=entry.get("new_values"),
                     status=entry.get("status", "success"),
-                    error_message=entry.get("error_message")
+                    error_message=entry.get("error_message"),
+                    auto_commit=False
                 )
                 processed_count += 1
             except Exception as e:
@@ -1090,11 +1327,12 @@ def flush_audit_queue():
         db.commit()
         
         if processed_count > 0:
-            clear_audit_wal()
             logger.info(f"[AuditQueue] Flushed {processed_count} audit logs")
         
     except Exception as e:
         logger.error(f"[AuditQueue] Error flushing audit queue: {e}")
+        if db:
+            db.rollback()
     finally:
         if db:
             db.close()
@@ -1109,6 +1347,15 @@ def audit_shutdown_handler(signum, frame):
     audit_shutdown_event.set()
     
     flushed = flush_audit_queue()
+    
+    wal_entries = load_audit_wal()
+    if wal_entries:
+        logger.warning(f"[AuditShutdown] Still {len(wal_entries)} WAL files, attempting final recovery...")
+        db = SessionLocal()
+        try:
+            recover_audit_wal(db)
+        finally:
+            db.close()
     
     logger.warning(f"[AuditShutdown] Audit shutdown complete. Flushed {flushed} logs.")
     
@@ -1126,6 +1373,14 @@ def register_audit_shutdown_handlers():
         if not audit_shutdown_event.is_set():
             logger.warning("[AuditShutdown] Atexit: Flushing audit queue...")
             flush_audit_queue()
+            
+            wal_entries = load_audit_wal()
+            if wal_entries:
+                db = SessionLocal()
+                try:
+                    recover_audit_wal(db)
+                finally:
+                    db.close()
     
     atexit.register(atexit_flush)
 
@@ -1145,6 +1400,8 @@ def recover_audit_logs_on_startup():
             db.close()
 
 def start_audit_processor():
+    ensure_wal_dir()
+    
     recover_audit_logs_on_startup()
     
     register_audit_shutdown_handlers()
