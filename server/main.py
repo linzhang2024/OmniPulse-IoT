@@ -917,13 +917,34 @@ def get_all_devices(db: Session = Depends(get_db)):
     for device in devices:
         check_device_status(device)
         latest_data = get_latest_device_data(device.device_id, db)
+        
+        protocol_info = None
+        protocol = db.query(DeviceProtocol).filter(
+            DeviceProtocol.device_id == device.device_id,
+            DeviceProtocol.is_active == True
+        ).first()
+        
+        if protocol:
+            has_protocol_success = False
+            if latest_data and latest_data.payload:
+                raw_parsed = latest_data.payload.get('_raw_parsed', {})
+                if raw_parsed:
+                    has_protocol_success = True
+            
+            protocol_info = {
+                "protocol_type": protocol.protocol_type.value,
+                "description": protocol.description,
+                "has_success": has_protocol_success
+            }
+        
         result.append({
             "device_id": device.device_id,
             "model": device.model,
             "status": device.status.value,
             "last_heartbeat": device.last_heartbeat,
             "latest_payload": latest_data.payload if latest_data else None,
-            "latest_data_time": latest_data.recorded_at if latest_data else None
+            "latest_data_time": latest_data.recorded_at if latest_data else None,
+            "protocol": protocol_info
         })
     
     db.commit()

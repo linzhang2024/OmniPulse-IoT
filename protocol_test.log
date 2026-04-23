@@ -1,0 +1,500 @@
+2026-04-23 09:15:19,852 - ProtocolTest - INFO - 
+######################################################################
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - # 协议适配器深度重构测试 - Protocol Adapter Deep Refactor Test
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - # 测试开始时间: 2026-04-23 09:15:19
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - # 日志文件: protocol_test.log
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - ######################################################################
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - 
+**********************************************************************
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - * 开始执行测试套件
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - **********************************************************************
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - 
+======================================================================
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - 测试1: 基础 HEX 解析测试（4字节，2字段）
+2026-04-23 09:15:19,853 - ProtocolTest - INFO - ======================================================================
+2026-04-23 09:15:19,853 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:19,855 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:19,975 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:19,975 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:20,093 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:20,094 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:20,213 - ProtocolTest - INFO - [Register] 注册设备: device_id=test_hex_basic_f70383d4, model=OldSensor-BASIC
+2026-04-23 09:15:20,213 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:20,237 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5DAA6690>
+2026-04-23 09:15:20,237 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:20,238 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:20,238 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:20,238 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:20,238 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:20,300 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'175'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:19 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:20,300 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/register "HTTP/1.1 200 OK"
+2026-04-23 09:15:20,300 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:20,300 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:20,300 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:20,300 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:20,300 - ProtocolTest - INFO - [Register] 注册成功: secret_key=Xfd71EzR...
+2026-04-23 09:15:20,301 - ProtocolTest - INFO - [Protocol] 创建 4 字节 HEX 协议配置
+2026-04-23 09:15:20,301 - ProtocolTest - INFO - [Protocol] 格式: offset 0-1: 温度(uint), offset 2-3: 湿度(uint)
+2026-04-23 09:15:20,320 - ProtocolTest - INFO - [Protocol] 协议配置创建成功: id=1dfb9768...
+2026-04-23 09:15:20,320 - ProtocolTest - INFO - 
+--- 测试用例 1: 01A200FA ---
+2026-04-23 09:15:20,321 - ProtocolTest - INFO -     描述: 0x01A2=418, 0x00FA=250
+2026-04-23 09:15:20,321 - ProtocolTest - INFO -     计算期望值: temperature=26.50°C, humidity=24.40%
+2026-04-23 09:15:20,321 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:20,321 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:20,441 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:20,441 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:20,561 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:20,562 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:20,685 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 01A200FA
+2026-04-23 09:15:20,685 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:20,687 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6A76B0>
+2026-04-23 09:15:20,687 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:20,687 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:20,687 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:20,688 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:20,690 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:20,693 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'203'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:20 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:20,693 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:20,693 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:20,694 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:20,694 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:20,694 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:20,694 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_basic_f70383d4","raw_payload":"01A200FA"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:20,694 - ProtocolTest - ERROR -     [FAILED] 测试用例执行失败: Client error '422 Unprocessable Entity' for url 'http://127.0.0.1:8000/devices/data'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422
+2026-04-23 09:15:20,695 - ProtocolTest - INFO - 
+--- 测试用例 2: 020001F4 ---
+2026-04-23 09:15:20,695 - ProtocolTest - INFO -     描述: 0x0200=512, 0x01F4=500
+2026-04-23 09:15:20,695 - ProtocolTest - INFO -     计算期望值: temperature=35.90°C, humidity=48.80%
+2026-04-23 09:15:20,695 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:20,696 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:20,820 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:20,821 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:20,940 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:20,941 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,062 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 020001F4
+2026-04-23 09:15:21,064 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:21,064 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6D06E0>
+2026-04-23 09:15:21,064 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:21,064 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:21,064 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:21,065 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:21,065 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:21,116 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'203'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:20 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:21,116 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:21,117 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:21,117 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:21,117 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:21,117 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:21,117 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_basic_f70383d4","raw_payload":"020001F4"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:21,117 - ProtocolTest - ERROR -     [FAILED] 测试用例执行失败: Client error '422 Unprocessable Entity' for url 'http://127.0.0.1:8000/devices/data'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422
+2026-04-23 09:15:21,117 - ProtocolTest - INFO - 
+--- 测试用例 3: 00FF00C8 ---
+2026-04-23 09:15:21,117 - ProtocolTest - INFO -     描述: 0x00FF=255, 0x00C8=200
+2026-04-23 09:15:21,117 - ProtocolTest - INFO -     计算期望值: temperature=10.20°C, humidity=19.52%
+2026-04-23 09:15:21,118 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,118 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,237 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,238 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,356 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,357 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,475 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 00FF00C8
+2026-04-23 09:15:21,476 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:21,476 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6D1790>
+2026-04-23 09:15:21,476 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:21,476 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:21,476 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:21,476 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:21,476 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:21,482 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'203'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:21 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:21,482 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:21,483 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:21,483 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:21,483 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:21,483 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:21,483 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_basic_f70383d4","raw_payload":"00FF00C8"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:21,483 - ProtocolTest - ERROR -     [FAILED] 测试用例执行失败: Client error '422 Unprocessable Entity' for url 'http://127.0.0.1:8000/devices/data'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422
+2026-04-23 09:15:21,483 - ProtocolTest - INFO - 
+--- 测试用例 4: 03 FF 02 BC ---
+2026-04-23 09:15:21,483 - ProtocolTest - INFO -     描述: 带空格的格式: 0x03FF=1023, 0x02BC=700
+2026-04-23 09:15:21,483 - ProtocolTest - INFO -     计算期望值: temperature=87.00°C, humidity=68.32%
+2026-04-23 09:15:21,483 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,485 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,602 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,603 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,720 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,722 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,842 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 03 FF 02 BC
+2026-04-23 09:15:21,842 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:21,843 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6D2810>
+2026-04-23 09:15:21,843 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:21,843 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:21,843 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:21,844 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:21,844 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:21,849 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'206'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:21 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:21,850 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:21,850 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:21,850 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:21,850 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:21,850 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:21,851 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_basic_f70383d4","raw_payload":"03 FF 02 BC"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:21,851 - ProtocolTest - ERROR -     [FAILED] 测试用例执行失败: Client error '422 Unprocessable Entity' for url 'http://127.0.0.1:8000/devices/data'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422
+2026-04-23 09:15:21,852 - ProtocolTest - INFO - 
+======================================================================
+2026-04-23 09:15:21,852 - ProtocolTest - INFO - 测试2: 错误处理和容错能力测试
+2026-04-23 09:15:21,852 - ProtocolTest - INFO - ======================================================================
+2026-04-23 09:15:21,853 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,853 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:21,971 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:21,971 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,090 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,090 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,209 - ProtocolTest - INFO - [Register] 注册设备: device_id=test_hex_error_e0121335, model=ErrorTestSensor
+2026-04-23 09:15:22,210 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:22,210 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6D3440>
+2026-04-23 09:15:22,210 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:22,210 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:22,211 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:22,211 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:22,211 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:22,255 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'175'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:21 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:22,255 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/register "HTTP/1.1 200 OK"
+2026-04-23 09:15:22,255 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:22,255 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:22,255 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:22,255 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:22,255 - ProtocolTest - INFO - [Register] 注册成功: secret_key=uLwC220R...
+2026-04-23 09:15:22,255 - ProtocolTest - INFO - [Protocol] 创建 4 字节 HEX 协议配置
+2026-04-23 09:15:22,255 - ProtocolTest - INFO - [Protocol] 格式: offset 0-1: 温度(uint), offset 2-3: 湿度(uint)
+2026-04-23 09:15:22,266 - ProtocolTest - INFO - [Protocol] 协议配置创建成功: id=15d3ec48...
+2026-04-23 09:15:22,267 - ProtocolTest - INFO - 
+--- 错误测试 1: G1A200FA ---
+2026-04-23 09:15:22,267 - ProtocolTest - INFO -     描述: 包含非法字符 'G'
+2026-04-23 09:15:22,268 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,268 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,384 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,385 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,504 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,504 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,624 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: G1A200FA
+2026-04-23 09:15:22,624 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:22,625 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6D34A0>
+2026-04-23 09:15:22,626 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:22,626 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:22,626 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:22,626 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:22,626 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:22,629 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'203'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:22 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:22,630 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:22,630 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:22,630 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:22,630 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:22,631 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:22,631 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":"G1A200FA"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:22,631 - ProtocolTest - INFO -     正确返回错误状态码: 422
+2026-04-23 09:15:22,631 - ProtocolTest - INFO -     错误信息: {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":"G1A200FA"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:22,631 - ProtocolTest - ERROR -     [FAILED] 期望状态码 400，但实际是 422
+2026-04-23 09:15:22,631 - ProtocolTest - INFO - 
+--- 错误测试 2: 01A200F ---
+2026-04-23 09:15:22,631 - ProtocolTest - INFO -     描述: 奇数长度
+2026-04-23 09:15:22,631 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,632 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,748 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,749 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,866 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,868 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:22,986 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 01A200F
+2026-04-23 09:15:22,987 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:22,988 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6D12B0>
+2026-04-23 09:15:22,988 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:22,988 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:22,988 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:22,988 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:22,988 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:22,990 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'202'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:22 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:22,990 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:22,990 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:22,991 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:22,991 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:22,991 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:22,991 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":"01A200F"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:22,991 - ProtocolTest - INFO -     正确返回错误状态码: 422
+2026-04-23 09:15:22,991 - ProtocolTest - INFO -     错误信息: {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":"01A200F"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:22,991 - ProtocolTest - ERROR -     [FAILED] 期望状态码 400，但实际是 422
+2026-04-23 09:15:22,992 - ProtocolTest - INFO - 
+--- 错误测试 3: 01A2 ---
+2026-04-23 09:15:22,992 - ProtocolTest - INFO -     描述: 数据长度不足（只有2字节，协议需要4字节）
+2026-04-23 09:15:22,992 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:22,992 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,112 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,112 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,231 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,231 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,351 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 01A2
+2026-04-23 09:15:23,351 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:23,352 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6D01D0>
+2026-04-23 09:15:23,352 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:23,353 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:23,353 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:23,353 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:23,353 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:23,357 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'199'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:22 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:23,357 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:23,357 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:23,358 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:23,358 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:23,358 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:23,358 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":"01A2"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:23,358 - ProtocolTest - INFO -     正确返回错误状态码: 422
+2026-04-23 09:15:23,358 - ProtocolTest - INFO -     错误信息: {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":"01A2"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:23,358 - ProtocolTest - ERROR -     [FAILED] 期望状态码 400，但实际是 422
+2026-04-23 09:15:23,358 - ProtocolTest - INFO - 
+--- 错误测试 4: (empty) ---
+2026-04-23 09:15:23,358 - ProtocolTest - INFO -     描述: 空字符串
+2026-04-23 09:15:23,358 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,358 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,476 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,476 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,594 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,594 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,713 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 
+2026-04-23 09:15:23,714 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:23,715 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6A7DA0>
+2026-04-23 09:15:23,715 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:23,715 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:23,715 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:23,715 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:23,715 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:23,724 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'195'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:23 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:23,724 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:23,724 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:23,724 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:23,724 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:23,725 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:23,725 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":""},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:23,725 - ProtocolTest - INFO -     正确返回错误状态码: 422
+2026-04-23 09:15:23,725 - ProtocolTest - INFO -     错误信息: {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_error_e0121335","raw_payload":""},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:23,725 - ProtocolTest - ERROR -     [FAILED] 期望状态码 400，但实际是 422
+2026-04-23 09:15:23,725 - ProtocolTest - INFO - 
+======================================================================
+2026-04-23 09:15:23,725 - ProtocolTest - INFO - 测试3: 多字段解析测试（8字节，4字段）
+2026-04-23 09:15:23,725 - ProtocolTest - INFO - ======================================================================
+2026-04-23 09:15:23,727 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,727 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,854 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,855 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:23,973 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:23,973 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,090 - ProtocolTest - INFO - [Register] 注册设备: device_id=test_hex_multi_b1b1af96, model=MultiFieldSensor
+2026-04-23 09:15:24,091 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:24,092 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6DC3E0>
+2026-04-23 09:15:24,092 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:24,092 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:24,092 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:24,093 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:24,093 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:24,132 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'176'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:23 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:24,132 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/register "HTTP/1.1 200 OK"
+2026-04-23 09:15:24,132 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:24,132 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:24,132 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:24,132 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:24,132 - ProtocolTest - INFO - [Register] 注册成功: secret_key=9Egi7p3w...
+2026-04-23 09:15:24,132 - ProtocolTest - INFO - [Protocol] 创建 8 字节多字段 HEX 协议配置
+2026-04-23 09:15:24,140 - ProtocolTest - INFO - 
+测试数据格式: [状态(1B)][温度(2B)][湿度(2B)][电压(2B)][保留(1B)]
+2026-04-23 09:15:24,141 - ProtocolTest - INFO - 
+--- 多字段测试 1: 0101A200FA0064FF ---
+2026-04-23 09:15:24,141 - ProtocolTest - INFO -     描述: 状态=1, 温度=0x01A2=418, 湿度=0x00FA=250, 电压=0x0064=100
+2026-04-23 09:15:24,141 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,142 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,259 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,260 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,379 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,380 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,498 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 0101A200FA0064FF
+2026-04-23 09:15:24,500 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:24,500 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6DD6A0>
+2026-04-23 09:15:24,500 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:24,501 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:24,501 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:24,501 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:24,501 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:24,504 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'211'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:23 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:24,504 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:24,504 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:24,504 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:24,504 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:24,504 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:24,504 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_multi_b1b1af96","raw_payload":"0101A200FA0064FF"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:24,505 - ProtocolTest - ERROR -     [FAILED] 测试用例执行失败: Client error '422 Unprocessable Entity' for url 'http://127.0.0.1:8000/devices/data'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422
+2026-04-23 09:15:24,505 - ProtocolTest - INFO - 
+--- 多字段测试 2: 02020001F4012C00 ---
+2026-04-23 09:15:24,505 - ProtocolTest - INFO -     描述: 状态=2, 温度=0x0200=512, 湿度=0x01F4=500, 电压=0x012C=300
+2026-04-23 09:15:24,505 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,505 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,624 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,625 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,743 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,744 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,862 - ProtocolTest - DEBUG - [Report] 发送 raw_payload: 02020001F4012C00
+2026-04-23 09:15:24,863 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:24,863 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6DE7E0>
+2026-04-23 09:15:24,863 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:24,864 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:24,864 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:24,864 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:24,864 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:24,865 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 422, b'Unprocessable Entity', [(b'Connection', b'close'), (b'Content-Length', b'211'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:24 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:24,867 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 422 Unprocessable Entity"
+2026-04-23 09:15:24,867 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:24,867 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:24,867 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:24,867 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:24,868 - ProtocolTest - ERROR - [Report] 请求失败: 422 - {"detail":[{"type":"missing","loc":["body","payload"],"msg":"Field required","input":{"device_id":"test_hex_multi_b1b1af96","raw_payload":"02020001F4012C00"},"url":"https://errors.pydantic.dev/2.13/v/missing"}]}
+2026-04-23 09:15:24,868 - ProtocolTest - ERROR -     [FAILED] 测试用例执行失败: Client error '422 Unprocessable Entity' for url 'http://127.0.0.1:8000/devices/data'
+For more information check: https://developer.mozilla.org/en-US/docs/Web/HTTP/Status/422
+2026-04-23 09:15:24,869 - ProtocolTest - INFO - 
+======================================================================
+2026-04-23 09:15:24,869 - ProtocolTest - INFO - 测试4: 性能测试 - 100条数据连续上报
+2026-04-23 09:15:24,869 - ProtocolTest - INFO - ======================================================================
+2026-04-23 09:15:24,869 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,870 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:24,987 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:24,987 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:25,104 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:25,105 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:25,221 - ProtocolTest - INFO - [Register] 注册设备: device_id=test_perf_100_dea8cad7, model=PerfTestSensor
+2026-04-23 09:15:25,221 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:25,222 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6DF590>
+2026-04-23 09:15:25,222 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,222 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:25,222 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,222 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:25,222 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,249 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'173'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:24 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:25,249 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/register "HTTP/1.1 200 OK"
+2026-04-23 09:15:25,249 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,249 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:25,249 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:25,250 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:25,250 - ProtocolTest - INFO - [Register] 注册成功: secret_key=wzbHdAXo...
+2026-04-23 09:15:25,250 - ProtocolTest - INFO - [Protocol] 创建 4 字节 HEX 协议配置
+2026-04-23 09:15:25,250 - ProtocolTest - INFO - [Protocol] 格式: offset 0-1: 温度(uint), offset 2-3: 湿度(uint)
+2026-04-23 09:15:25,256 - ProtocolTest - INFO - [Protocol] 协议配置创建成功: id=3f9c1bfe...
+2026-04-23 09:15:25,256 - ProtocolTest - INFO - 
+开始上报 100 条测试数据...
+2026-04-23 09:15:25,256 - ProtocolTest - ERROR - 测试4执行失败: name 'expected_humidity' is not defined
+2026-04-23 09:15:25,257 - ProtocolTest - INFO - 
+======================================================================
+2026-04-23 09:15:25,257 - ProtocolTest - INFO - 测试5: 传统 JSON 格式兼容性测试
+2026-04-23 09:15:25,257 - ProtocolTest - INFO - ======================================================================
+2026-04-23 09:15:25,258 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:25,258 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:25,374 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:25,375 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:25,492 - httpx - DEBUG - load_ssl_context verify=True cert=None trust_env=True http2=False
+2026-04-23 09:15:25,493 - httpx - DEBUG - load_verify_locations cafile='D:\\install\\tools\\Conda\\Library\\ssl\\cacert.pem'
+2026-04-23 09:15:25,609 - ProtocolTest - INFO - [Register] 注册设备: device_id=test_json_compat_53191bda, model=JsonCompatSensor
+2026-04-23 09:15:25,610 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:25,610 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6E4410>
+2026-04-23 09:15:25,610 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,610 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:25,610 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,611 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:25,611 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,644 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'178'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:24 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:25,644 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/register "HTTP/1.1 200 OK"
+2026-04-23 09:15:25,644 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,644 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:25,645 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:25,645 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:25,645 - ProtocolTest - INFO - [Register] 注册成功: secret_key=DMpbeAXs...
+2026-04-23 09:15:25,645 - ProtocolTest - INFO - 
+--- JSON 测试 1: {'temperature': 25.5, 'humidity': 60.0} ---
+2026-04-23 09:15:25,645 - ProtocolTest - DEBUG - [Report] 发送 payload: {'temperature': 25.5, 'humidity': 60.0}
+2026-04-23 09:15:25,645 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:25,646 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6E5460>
+2026-04-23 09:15:25,646 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,646 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:25,646 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,646 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:25,646 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,678 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'271'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:25 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:25,678 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 200 OK"
+2026-04-23 09:15:25,678 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,682 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:25,682 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:25,682 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:25,682 - ProtocolTest - INFO - [Report] 请求成功: status_code=200
+2026-04-23 09:15:25,683 - ProtocolTest - INFO -     API 响应成功
+2026-04-23 09:15:25,786 - ProtocolTest - INFO -     数据库记录:
+2026-04-23 09:15:25,786 - ProtocolTest - INFO -         temperature: 25.5
+2026-04-23 09:15:25,786 - ProtocolTest - INFO -         humidity: 60.0
+2026-04-23 09:15:25,786 - ProtocolTest - INFO -     [PASSED] 温度正确
+2026-04-23 09:15:25,787 - ProtocolTest - INFO - 
+--- JSON 测试 2: {'temperature': 28.3, 'humidity': 55.5} ---
+2026-04-23 09:15:25,787 - ProtocolTest - DEBUG - [Report] 发送 payload: {'temperature': 28.3, 'humidity': 55.5}
+2026-04-23 09:15:25,787 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:25,788 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6DD5B0>
+2026-04-23 09:15:25,788 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,788 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:25,789 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,790 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:25,790 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,828 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'271'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:25 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:25,828 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 200 OK"
+2026-04-23 09:15:25,828 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,828 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:25,828 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:25,828 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:25,829 - ProtocolTest - INFO - [Report] 请求成功: status_code=200
+2026-04-23 09:15:25,829 - ProtocolTest - INFO -     API 响应成功
+2026-04-23 09:15:25,930 - ProtocolTest - INFO -     数据库记录:
+2026-04-23 09:15:25,930 - ProtocolTest - INFO -         temperature: 28.3
+2026-04-23 09:15:25,930 - ProtocolTest - INFO -         humidity: 55.5
+2026-04-23 09:15:25,931 - ProtocolTest - INFO -     [PASSED] 温度正确
+2026-04-23 09:15:25,931 - ProtocolTest - INFO - 
+--- JSON 测试 3: {'temp': 30.0, 'humidity': 70.0} ---
+2026-04-23 09:15:25,931 - ProtocolTest - DEBUG - [Report] 发送 payload: {'temp': 30.0, 'humidity': 70.0}
+2026-04-23 09:15:25,932 - httpcore.connection - DEBUG - connect_tcp.started host='127.0.0.1' port=7890 local_address=None timeout=10.0 socket_options=None
+2026-04-23 09:15:25,932 - httpcore.connection - DEBUG - connect_tcp.complete return_value=<httpcore._backends.sync.SyncStream object at 0x000002BF5F6DCD70>
+2026-04-23 09:15:25,932 - httpcore.http11 - DEBUG - send_request_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,933 - httpcore.http11 - DEBUG - send_request_headers.complete
+2026-04-23 09:15:25,933 - httpcore.http11 - DEBUG - send_request_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,933 - httpcore.http11 - DEBUG - send_request_body.complete
+2026-04-23 09:15:25,933 - httpcore.http11 - DEBUG - receive_response_headers.started request=<Request [b'POST']>
+2026-04-23 09:15:25,968 - httpcore.http11 - DEBUG - receive_response_headers.complete return_value=(b'HTTP/1.1', 200, b'OK', [(b'Connection', b'close'), (b'Content-Length', b'264'), (b'Content-Type', b'application/json'), (b'Date', b'Thu, 23 Apr 2026 01:15:25 GMT'), (b'Server', b'uvicorn')])
+2026-04-23 09:15:25,968 - httpx - INFO - HTTP Request: POST http://127.0.0.1:8000/devices/data "HTTP/1.1 200 OK"
+2026-04-23 09:15:25,968 - httpcore.http11 - DEBUG - receive_response_body.started request=<Request [b'POST']>
+2026-04-23 09:15:25,968 - httpcore.http11 - DEBUG - receive_response_body.complete
+2026-04-23 09:15:25,968 - httpcore.http11 - DEBUG - response_closed.started
+2026-04-23 09:15:25,969 - httpcore.http11 - DEBUG - response_closed.complete
+2026-04-23 09:15:25,969 - ProtocolTest - INFO - [Report] 请求成功: status_code=200
+2026-04-23 09:15:25,969 - ProtocolTest - INFO -     API 响应成功
+2026-04-23 09:15:26,070 - ProtocolTest - INFO -     数据库记录:
+2026-04-23 09:15:26,070 - ProtocolTest - INFO -         temperature: 30.0
+2026-04-23 09:15:26,070 - ProtocolTest - INFO -         humidity: 70.0
+2026-04-23 09:15:26,070 - ProtocolTest - INFO -     [PASSED] 温度正确
+2026-04-23 09:15:26,072 - ProtocolTest - INFO - 
+======================================================================
+2026-04-23 09:15:26,072 - ProtocolTest - INFO - 测试结果汇总
+2026-04-23 09:15:26,073 - ProtocolTest - INFO - ======================================================================
+2026-04-23 09:15:26,073 - ProtocolTest - INFO -   测试1: 基础 HEX 解析: [FAILED]
+2026-04-23 09:15:26,073 - ProtocolTest - INFO -   测试2: 错误处理和容错: [FAILED]
+2026-04-23 09:15:26,073 - ProtocolTest - INFO -   测试3: 多字段解析: [FAILED]
+2026-04-23 09:15:26,073 - ProtocolTest - INFO -   测试4: 性能测试(100条): [FAILED]
+2026-04-23 09:15:26,073 - ProtocolTest - INFO -   测试5: JSON 格式兼容: [PASSED]
+2026-04-23 09:15:26,073 - ProtocolTest - INFO - 
+======================================================================
+2026-04-23 09:15:26,073 - ProtocolTest - INFO - 部分测试失败! 请查看日志文件了解详情。
+2026-04-23 09:15:26,073 - ProtocolTest - INFO - ======================================================================
+2026-04-23 09:15:26,073 - ProtocolTest - INFO - 
+测试结束时间: 2026-04-23 09:15:26
+2026-04-23 09:15:26,074 - ProtocolTest - INFO - 详细日志已保存到: D:\workspace\Trae\OmniPulse-IoT\protocol_test.log
