@@ -28,12 +28,12 @@ logger = logging.getLogger("ProtocolAdapter")
 from .models import (
     Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
     User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
-    DeviceProtocol, ProtocolType
+    DeviceProtocol, ProtocolType, DeviceStatusEvent
 )
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
-HEARTBEAT_TIMEOUT = 30
-CHECK_INTERVAL = 10
+HEARTBEAT_TIMEOUT = 120
+CHECK_INTERVAL = 30
 COMMAND_TTL_SECONDS = 600
 SIGNATURE_TIMESTAMP_TOLERANCE = 60
 
@@ -379,6 +379,27 @@ def apply_field_mappings(parsed_data: dict, field_mappings: dict) -> dict:
     
     return result
 
+def record_status_event(
+    db: Session,
+    device_id: str,
+    event_type: str,
+    old_status: str = None,
+    new_status: str = None,
+    reason: str = None,
+    details: dict = None
+):
+    event = DeviceStatusEvent(
+        id=str(uuid.uuid4()),
+        device_id=device_id,
+        event_type=event_type,
+        old_status=old_status,
+        new_status=new_status,
+        reason=reason,
+        details=details or {}
+    )
+    db.add(event)
+    logger.info(f"[StatusEvent] Device {device_id}: {event_type} - {old_status} -> {new_status}. Reason: {reason}")
+
 def check_all_devices_status():
     db = SessionLocal()
     try:
@@ -389,12 +410,31 @@ def check_all_devices_status():
         alert_count = 0
         
         for device in devices:
-            if device.last_heartbeat is not None:
-                time_since_heartbeat = (now - device.last_heartbeat).total_seconds()
+            last_active_time = device.last_seen if device.last_seen else device.last_heartbeat
+            
+            if last_active_time is not None:
+                time_since_active = (now - last_active_time).total_seconds()
                 
-                if device.status == DeviceStatus.ONLINE and time_since_heartbeat > HEARTBEAT_TIMEOUT:
+                if device.status == DeviceStatus.ONLINE and time_since_active > HEARTBEAT_TIMEOUT:
+                    old_status = device.status.value
                     device.status = DeviceStatus.OFFLINE
+                    new_status = device.status.value
                     updated_count += 1
+                    
+                    record_status_event(
+                        db,
+                        device.device_id,
+                        "offline",
+                        old_status=old_status,
+                        new_status=new_status,
+                        reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {HEARTBEAT_TIMEOUT}s)",
+                        details={
+                            "last_active_time": last_active_time.isoformat() if last_active_time else None,
+                            "timeout_seconds": HEARTBEAT_TIMEOUT,
+                            "time_since_active": time_since_active
+                        }
+                    )
+                    logger.warning(f"[DeviceOffline] Device {device.device_id} marked as OFFLINE. No activity for {time_since_active:.1f} seconds")
             
             latest_data = get_latest_device_data(device.device_id, db)
             if latest_data and latest_data.payload:
@@ -412,7 +452,7 @@ def check_all_devices_status():
                             device.consecutive_alert_count = 0
                         device.consecutive_alert_count += 1
                         
-                        print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C exceeds threshold, consecutive count: {device.consecutive_alert_count}/{ALERT_CONSECUTIVE_THRESHOLD}")
+                        logger.info(f"[Alert] Device {device.device_id}: Temperature {temperature}°C exceeds threshold, consecutive count: {device.consecutive_alert_count}/{ALERT_CONSECUTIVE_THRESHOLD}")
                         
                         if device.consecutive_alert_count >= ALERT_CONSECUTIVE_THRESHOLD:
                             if device.pending_commands is None:
@@ -432,10 +472,10 @@ def check_all_devices_status():
                                 )
                                 device.pending_commands.append(alert_cmd)
                                 alert_count += 1
-                                print(f"[Alert] Device {device.device_id}: Triggering alert_buzzer after {ALERT_CONSECUTIVE_THRESHOLD} consecutive alerts (id={alert_cmd['id']})")
+                                logger.info(f"[Alert] Device {device.device_id}: Triggering alert_buzzer after {ALERT_CONSECUTIVE_THRESHOLD} consecutive alerts (id={alert_cmd['id']})")
                     else:
                         if device.consecutive_alert_count is None or device.consecutive_alert_count > 0:
-                            print(f"[Alert] Device {device.device_id}: Temperature {temperature}°C normalized, resetting consecutive alert count")
+                            logger.info(f"[Alert] Device {device.device_id}: Temperature {temperature}°C normalized, resetting consecutive alert count")
                             device.consecutive_alert_count = 0
         
         if updated_count > 0 or alert_count > 0:
@@ -685,8 +725,26 @@ def device_heartbeat(
         request = HeartbeatRequest()
     
     now = datetime.utcnow()
+    old_status = device.status.value
+    
     device.last_heartbeat = now
-    device.status = DeviceStatus.ONLINE
+    device.last_seen = now
+    
+    if device.status != DeviceStatus.ONLINE:
+        device.status = DeviceStatus.ONLINE
+        new_status = device.status.value
+        record_status_event(
+            db,
+            device.device_id,
+            "online",
+            old_status=old_status,
+            new_status=new_status,
+            reason="Device heartbeat received",
+            details={
+                "timestamp": now.isoformat()
+            }
+        )
+        logger.info(f"[DeviceOnline] Device {device.device_id} marked as ONLINE")
     
     commands_to_deliver, acknowledged_count, expired_count = process_heartbeat_commands(
         device,
@@ -854,8 +912,27 @@ def report_device_data(
     db.add(history_record)
     
     now = datetime.utcnow()
+    old_status = device.status.value
+    
     device.last_heartbeat = now
-    device.status = DeviceStatus.ONLINE
+    device.last_seen = now
+    
+    if device.status != DeviceStatus.ONLINE:
+        device.status = DeviceStatus.ONLINE
+        new_status = device.status.value
+        record_status_event(
+            db,
+            device.device_id,
+            "online",
+            old_status=old_status,
+            new_status=new_status,
+            reason="Device data reported",
+            details={
+                "timestamp": now.isoformat()
+            }
+        )
+        logger.info(f"[DeviceOnline] Device {device.device_id} marked as ONLINE via data report")
+    
     db.commit()
     db.refresh(new_data)
     db.refresh(history_record)
@@ -950,14 +1027,62 @@ def get_all_devices(db: Session = Depends(get_db)):
     db.commit()
     return result
 
+@app.get("/devices/status-events")
+def get_status_events(
+    device_id: str = Query(None, description="Filter by device ID"),
+    event_type: str = Query(None, description="Filter by event type (online/offline)"),
+    since: str = Query(None, description="Only return events after this timestamp (ISO format)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of events to return"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(DeviceStatusEvent)
+    
+    if device_id:
+        query = query.filter(DeviceStatusEvent.device_id == device_id)
+    
+    if event_type:
+        query = query.filter(DeviceStatusEvent.event_type == event_type)
+    
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+            query = query.filter(DeviceStatusEvent.created_at >= since_dt)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid 'since' format. Use ISO format: YYYY-MM-DDTHH:MM:SS"
+            )
+    
+    events = query.order_by(desc(DeviceStatusEvent.created_at)).limit(limit).all()
+    
+    result = []
+    for event in events:
+        result.append({
+            "id": event.id,
+            "device_id": event.device_id,
+            "event_type": event.event_type,
+            "old_status": event.old_status,
+            "new_status": event.new_status,
+            "reason": event.reason,
+            "details": event.details,
+            "created_at": event.created_at.isoformat() if event.created_at else None
+        })
+    
+    return {
+        "events": result,
+        "count": len(result),
+        "limit": limit
+    }
+
 def check_device_status(device: Device):
-    if device.last_heartbeat is None:
+    last_active_time = device.last_seen if device.last_seen else device.last_heartbeat
+    if last_active_time is None:
         return
     
     now = datetime.utcnow()
-    time_since_heartbeat = (now - device.last_heartbeat).total_seconds()
+    time_since_active = (now - last_active_time).total_seconds()
     
-    if time_since_heartbeat > HEARTBEAT_TIMEOUT:
+    if time_since_active > HEARTBEAT_TIMEOUT:
         device.status = DeviceStatus.OFFLINE
 
 def hash_password(password: str) -> str:
