@@ -1,0 +1,91 @@
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO - Heartbeat Timeout Test Suite
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO - Test Parameters:
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO -   - HEARTBEAT_TIMEOUT: 120 seconds (2 minutes)
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO -   - CHECK_INTERVAL: 30 seconds
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO - 
+2026-04-23 11:50:46,559 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:46,560 - HeartbeatTimeoutTest - INFO - TEST CASE 1: Basic Heartbeat Timeout
+2026-04-23 11:50:46,560 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:46,560 - HeartbeatTimeoutTest - INFO - Creating test device: TEST_TIMEOUT_1776916246
+2026-04-23 11:50:46,623 - HeartbeatTimeoutTest - INFO - Test device created: TEST_TIMEOUT_1776916246, status: offline
+2026-04-23 11:50:46,623 - HeartbeatTimeoutTest - INFO - [PASS] Initial status is OFFLINE
+2026-04-23 11:50:46,623 - HeartbeatTimeoutTest - INFO - Simulating heartbeat for device: TEST_TIMEOUT_1776916246
+2026-04-23 11:50:46,625 - HeartbeatTimeoutTest - INFO - [StatusEvent] Device TEST_TIMEOUT_1776916246 went ONLINE
+2026-04-23 11:50:46,655 - HeartbeatTimeoutTest - INFO - [PASS] Status changed to ONLINE after heartbeat
+2026-04-23 11:50:46,657 - HeartbeatTimeoutTest - INFO - [PASS] Found 1 ONLINE event(s)
+2026-04-23 11:50:46,657 - HeartbeatTimeoutTest - INFO - Simulating timeout: setting last_seen to 130 seconds ago
+2026-04-23 11:50:46,684 - HeartbeatTimeoutTest - INFO - Device TEST_TIMEOUT_1776916246 last_seen set to: 2026-04-23 03:48:36.658672 (130s ago)
+2026-04-23 11:50:46,684 - HeartbeatTimeoutTest - INFO - Checking device timeout for TEST_TIMEOUT_1776916246
+2026-04-23 11:50:46,684 - HeartbeatTimeoutTest - WARNING - [DeviceOffline] Device TEST_TIMEOUT_1776916246 marked as OFFLINE. Reason: No heartbeat for 130.0 seconds (timeout: 120s)
+2026-04-23 11:50:46,710 - HeartbeatTimeoutTest - INFO - [PASS] Device was offlined due to timeout
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO - [PASS] Found 1 OFFLINE event(s)
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO - Offline event details:
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO -   - event_type: offline
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO -   - old_status: online
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO -   - new_status: offline
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO -   - reason: No heartbeat for 130.0 seconds (timeout: 120s)
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO -   - details: {'last_active_time': '2026-04-23T03:48:36.658672', 'timeout_seconds': 120, 'time_since_active': 130.026135}
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO - 
+[TEST CASE 1: PASS] Basic heartbeat timeout works correctly!
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO - 
+============================================================
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO - TEST CASE 2: No Timeout (within threshold)
+2026-04-23 11:50:46,711 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:46,739 - HeartbeatTimeoutTest - INFO - Simulating heartbeat for device: TEST_NO_TIMEOUT_1776916246
+2026-04-23 11:50:46,739 - HeartbeatTimeoutTest - INFO - [StatusEvent] Device TEST_NO_TIMEOUT_1776916246 went ONLINE
+2026-04-23 11:50:46,764 - HeartbeatTimeoutTest - INFO - [PASS] Status changed to ONLINE after heartbeat
+2026-04-23 11:50:46,764 - HeartbeatTimeoutTest - INFO - Simulating timeout: setting last_seen to 60 seconds ago
+2026-04-23 11:50:46,792 - HeartbeatTimeoutTest - INFO - Device TEST_NO_TIMEOUT_1776916246 last_seen set to: 2026-04-23 03:49:46.764134 (60s ago)
+2026-04-23 11:50:46,792 - HeartbeatTimeoutTest - INFO - Checking device timeout for TEST_NO_TIMEOUT_1776916246
+2026-04-23 11:50:46,792 - HeartbeatTimeoutTest - INFO - [PASS] Device remained ONLINE (only 60.0s since last active)
+2026-04-23 11:50:46,792 - HeartbeatTimeoutTest - INFO - [PASS] No OFFLINE events recorded
+2026-04-23 11:50:46,793 - HeartbeatTimeoutTest - INFO - 
+[TEST CASE 2: PASS] No false positives for timeout!
+2026-04-23 11:50:46,793 - HeartbeatTimeoutTest - INFO - 
+============================================================
+2026-04-23 11:50:46,793 - HeartbeatTimeoutTest - INFO - TEST CASE 3: Device Without Any Activity
+2026-04-23 11:50:46,793 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:46,818 - HeartbeatTimeoutTest - INFO - [PASS] Initial status is OFFLINE
+2026-04-23 11:50:46,819 - HeartbeatTimeoutTest - INFO - Checking device timeout for TEST_NO_ACTIVITY_1776916246
+2026-04-23 11:50:46,819 - HeartbeatTimeoutTest - INFO - [PASS] Device without activity remains OFFLINE
+2026-04-23 11:50:46,820 - HeartbeatTimeoutTest - INFO - [PASS] No events recorded for inactive device
+2026-04-23 11:50:46,820 - HeartbeatTimeoutTest - INFO - 
+[TEST CASE 3: PASS] Inactive devices handled correctly!
+2026-04-23 11:50:46,820 - HeartbeatTimeoutTest - INFO - 
+============================================================
+2026-04-23 11:50:46,820 - HeartbeatTimeoutTest - INFO - TEST CASE 4: Status Events Query Interface
+2026-04-23 11:50:46,820 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:46,846 - HeartbeatTimeoutTest - INFO - Simulating heartbeat for device: TEST_QUERY_1_1776916246
+2026-04-23 11:50:46,846 - HeartbeatTimeoutTest - INFO - [StatusEvent] Device TEST_QUERY_1_1776916246 went ONLINE
+2026-04-23 11:50:46,873 - HeartbeatTimeoutTest - INFO - Simulating heartbeat for device: TEST_QUERY_2_1776916246
+2026-04-23 11:50:46,873 - HeartbeatTimeoutTest - INFO - [StatusEvent] Device TEST_QUERY_2_1776916246 went ONLINE
+2026-04-23 11:50:46,900 - HeartbeatTimeoutTest - INFO - Simulating timeout: setting last_seen to 130 seconds ago
+2026-04-23 11:50:46,926 - HeartbeatTimeoutTest - INFO - Device TEST_QUERY_1_1776916246 last_seen set to: 2026-04-23 03:48:36.900090 (130s ago)
+2026-04-23 11:50:46,926 - HeartbeatTimeoutTest - INFO - Checking device timeout for TEST_QUERY_1_1776916246
+2026-04-23 11:50:46,926 - HeartbeatTimeoutTest - WARNING - [DeviceOffline] Device TEST_QUERY_1_1776916246 marked as OFFLINE. Reason: No heartbeat for 130.0 seconds (timeout: 120s)
+2026-04-23 11:50:46,952 - HeartbeatTimeoutTest - INFO - Simulating timeout: setting last_seen to 130 seconds ago
+2026-04-23 11:50:46,976 - HeartbeatTimeoutTest - INFO - Device TEST_QUERY_2_1776916246 last_seen set to: 2026-04-23 03:48:36.952421 (130s ago)
+2026-04-23 11:50:46,976 - HeartbeatTimeoutTest - INFO - Checking device timeout for TEST_QUERY_2_1776916246
+2026-04-23 11:50:46,976 - HeartbeatTimeoutTest - WARNING - [DeviceOffline] Device TEST_QUERY_2_1776916246 marked as OFFLINE. Reason: No heartbeat for 130.0 seconds (timeout: 120s)
+2026-04-23 11:50:47,002 - HeartbeatTimeoutTest - INFO - [PASS] Found 10 total events
+2026-04-23 11:50:47,002 - HeartbeatTimeoutTest - INFO - [PASS] Found 2 events for device1
+2026-04-23 11:50:47,002 - HeartbeatTimeoutTest - INFO - [PASS] Found 6 ONLINE events
+2026-04-23 11:50:47,003 - HeartbeatTimeoutTest - INFO - [PASS] Found 4 OFFLINE events
+2026-04-23 11:50:47,003 - HeartbeatTimeoutTest - INFO - 
+[TEST CASE 4: PASS] Status events query works correctly!
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - 
+============================================================
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - TEST SUMMARY
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - ============================================================
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO -   PASS: Test Case 1: Basic Timeout
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO -   PASS: Test Case 2: No Timeout
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO -   PASS: Test Case 3: Device Without Activity
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO -   PASS: Test Case 4: Status Events Query
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - 
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - Total: 4 tests
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - Passed: 4
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - Failed: 0
+2026-04-23 11:50:47,004 - HeartbeatTimeoutTest - INFO - 
+[ALL TESTS PASSED] Heartbeat timeout mechanism is working correctly!

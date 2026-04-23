@@ -9,6 +9,7 @@ Base = declarative_base()
 class DeviceStatus(enum.Enum):
     ONLINE = "online"
     OFFLINE = "offline"
+    MAINTENANCE = "maintenance"
 
 class CommandStatus(enum.Enum):
     PENDING = "pending"
@@ -24,12 +25,28 @@ class Device(Base):
     model = Column(String(64), nullable=False)
     status = Column(Enum(DeviceStatus), default=DeviceStatus.OFFLINE)
     last_heartbeat = Column(DateTime, nullable=True)
+    last_seen = Column(DateTime, nullable=True)
     consecutive_alert_count = Column(Integer, default=0)
     pending_commands = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     data_records = relationship("DeviceData", back_populates="device", cascade="all, delete-orphan")
+    status_events = relationship("DeviceStatusEvent", back_populates="device", cascade="all, delete-orphan")
+
+class DeviceStatusEvent(Base):
+    __tablename__ = "device_status_events"
+
+    id = Column(String(36), primary_key=True, index=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
+    event_type = Column(String(32), nullable=False, index=True)
+    old_status = Column(String(32), nullable=True)
+    new_status = Column(String(32), nullable=True)
+    reason = Column(String(500), nullable=True)
+    details = Column(JSON, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    device = relationship("Device", back_populates="status_events")
 
 class DeviceData(Base):
     __tablename__ = "device_data"
