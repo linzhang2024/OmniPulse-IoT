@@ -17,6 +17,13 @@ import time
 import re
 import json
 import struct
+import logging
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger("ProtocolAdapter")
 
 from .models import (
     Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
@@ -48,53 +55,152 @@ def parse_hex_payload(raw_payload: str, parse_config: dict) -> dict:
     parse_config 支持:
     - byte_order: 字节序 ('big' 或 'little')
     - fields: 字段定义，包含 offset(字节偏移)、length(字节数)、type(数据类型)
-    """
-    cleaned_hex = re.sub(r'[\s\-:,]', '', raw_payload).upper()
     
-    if not re.match(r'^[0-9A-F]+$', cleaned_hex):
-        raise ValueError(f"Invalid HEX format: {raw_payload}")
+    增强的容错能力：
+    - 捕获所有异常并返回明确的错误信息
+    - 详细的日志记录，便于调试
+    """
+    logger.info(f"[HEX Parser] 开始解析 HEX 数据: {raw_payload}")
+    
+    if not raw_payload or not isinstance(raw_payload, str):
+        error_msg = f"HEX 数据不能为空或无效类型，实际类型: {type(raw_payload)}"
+        logger.error(f"[HEX Parser] {error_msg}")
+        raise ValueError(error_msg)
+    
+    try:
+        cleaned_hex = re.sub(r'[\s\-:,\.]', '', raw_payload).upper()
+        logger.info(f"[HEX Parser] 清洗后的 HEX: {cleaned_hex}")
+    except Exception as e:
+        error_msg = f"清洗 HEX 数据时出错: {str(e)}"
+        logger.error(f"[HEX Parser] {error_msg}")
+        raise ValueError(error_msg)
+    
+    if not re.match(r'^[0-9A-F]*$', cleaned_hex):
+        invalid_chars = set(cleaned_hex) - set('0123456789ABCDEF')
+        error_msg = f"HEX 字符串包含非法字符: {invalid_chars}，原始数据: {raw_payload}"
+        logger.error(f"[HEX Parser] {error_msg}")
+        raise ValueError(error_msg)
+    
+    if len(cleaned_hex) == 0:
+        error_msg = f"HEX 字符串清洗后为空，原始数据: {raw_payload}"
+        logger.error(f"[HEX Parser] {error_msg}")
+        raise ValueError(error_msg)
     
     if len(cleaned_hex) % 2 != 0:
-        raise ValueError(f"HEX string has odd length: {len(cleaned_hex)}")
+        error_msg = f"HEX 字符串长度为奇数: {len(cleaned_hex)} 个字符 (应为偶数)，数据: {cleaned_hex}"
+        logger.error(f"[HEX Parser] {error_msg}")
+        raise ValueError(error_msg)
     
-    byte_data = bytes.fromhex(cleaned_hex)
+    try:
+        byte_data = bytes.fromhex(cleaned_hex)
+        logger.info(f"[HEX Parser] 转换为字节数组成功，共 {len(byte_data)} 字节")
+    except ValueError as e:
+        error_msg = f"HEX 字符串转换为字节失败: {str(e)}，数据: {cleaned_hex}"
+        logger.error(f"[HEX Parser] {error_msg}")
+        raise ValueError(error_msg)
+    
     result = {}
+    parse_details = []
     
     fields = parse_config.get('fields', [])
     byte_order = parse_config.get('byte_order', 'big')
     
-    for field in fields:
+    logger.info(f"[HEX Parser] 协议配置: 字节序={byte_order}, 字段数量={len(fields)}")
+    
+    for field_idx, field in enumerate(fields):
         field_name = field.get('name')
         offset = field.get('offset', 0)
         length = field.get('length', 1)
         data_type = field.get('type', 'uint')
         
-        end_offset = offset + length
-        if end_offset > len(byte_data):
+        logger.info(f"[HEX Parser] 处理字段 [{field_idx}] '{field_name}': offset={offset}, length={length}, type={data_type}")
+        
+        if not field_name:
+            logger.warning(f"[HEX Parser] 字段 {field_idx} 没有定义 name，跳过")
             continue
         
-        field_bytes = byte_data[offset:end_offset]
+        if not isinstance(offset, int) or offset < 0:
+            error_msg = f"字段 '{field_name}' 的 offset 必须是非负整数，实际: {offset}"
+            logger.error(f"[HEX Parser] {error_msg}")
+            raise ValueError(error_msg)
         
-        if data_type == 'uint':
-            value = int.from_bytes(field_bytes, byteorder=byte_order, signed=False)
-        elif data_type == 'int':
-            value = int.from_bytes(field_bytes, byteorder=byte_order, signed=True)
-        elif data_type == 'float':
-            if length == 4:
-                value = struct.unpack('>f' if byte_order == 'big' else '<f', field_bytes)[0]
-            elif length == 8:
-                value = struct.unpack('>d' if byte_order == 'big' else '<d', field_bytes)[0]
+        if not isinstance(length, int) or length <= 0:
+            error_msg = f"字段 '{field_name}' 的 length 必须是正整数，实际: {length}"
+            logger.error(f"[HEX Parser] {error_msg}")
+            raise ValueError(error_msg)
+        
+        end_offset = offset + length
+        
+        if offset >= len(byte_data):
+            error_msg = (f"字段 '{field_name}' 的 offset={offset} 超出数据范围，"
+                        f"数据仅 {len(byte_data)} 字节 (数据: {cleaned_hex})")
+            logger.error(f"[HEX Parser] {error_msg}")
+            raise ValueError(error_msg)
+        
+        if end_offset > len(byte_data):
+            error_msg = (f"字段 '{field_name}' 长度不足: offset={offset}, length={length}, "
+                        f"需要 {end_offset} 字节，但数据仅 {len(byte_data)} 字节 (数据: {cleaned_hex})")
+            logger.error(f"[HEX Parser] {error_msg}")
+            raise ValueError(error_msg)
+        
+        try:
+            field_bytes = byte_data[offset:end_offset]
+            hex_bytes_str = ' '.join([f'{b:02X}' for b in field_bytes])
+            logger.info(f"[HEX Parser] 字段 '{field_name}' 原始字节: {hex_bytes_str}")
+            
+            value = None
+            
+            if data_type == 'uint':
+                value = int.from_bytes(field_bytes, byteorder=byte_order, signed=False)
+                parse_details.append(f"{field_name}: {hex_bytes_str} -> 无符号整数={value}")
+                
+            elif data_type == 'int':
+                value = int.from_bytes(field_bytes, byteorder=byte_order, signed=True)
+                parse_details.append(f"{field_name}: {hex_bytes_str} -> 有符号整数={value}")
+                
+            elif data_type == 'float':
+                if length == 4:
+                    value = struct.unpack('>f' if byte_order == 'big' else '<f', field_bytes)[0]
+                    parse_details.append(f"{field_name}: {hex_bytes_str} -> 32位浮点数={value}")
+                elif length == 8:
+                    value = struct.unpack('>d' if byte_order == 'big' else '<d', field_bytes)[0]
+                    parse_details.append(f"{field_name}: {hex_bytes_str} -> 64位浮点数={value}")
+                else:
+                    error_msg = f"字段 '{field_name}' 类型为 float 时，length 必须是 4 或 8，实际: {length}"
+                    logger.error(f"[HEX Parser] {error_msg}")
+                    raise ValueError(error_msg)
+                    
+            elif data_type == 'bcd':
+                value = 0
+                for i, b in enumerate(field_bytes):
+                    high_nibble = (b >> 4) & 0x0F
+                    low_nibble = b & 0x0F
+                    if high_nibble > 9 or low_nibble > 9:
+                        error_msg = f"字段 '{field_name}' 的 BCD 数据包含非法值: 字节 {i} = 0x{b:02X}"
+                        logger.error(f"[HEX Parser] {error_msg}")
+                        raise ValueError(error_msg)
+                    value = value * 100 + (high_nibble * 10 + low_nibble)
+                parse_details.append(f"{field_name}: {hex_bytes_str} -> BCD={value}")
+                
             else:
-                value = None
-        elif data_type == 'bcd':
-            value = 0
-            for b in field_bytes:
-                value = value * 100 + ((b >> 4) * 10 + (b & 0x0F))
-        else:
-            value = int.from_bytes(field_bytes, byteorder=byte_order, signed=False)
-        
-        if value is not None:
-            result[field_name] = value
+                value = int.from_bytes(field_bytes, byteorder=byte_order, signed=False)
+                parse_details.append(f"{field_name}: {hex_bytes_str} -> 未知类型(默认uint)={value}")
+            
+            if value is not None:
+                result[field_name] = value
+                logger.info(f"[HEX Parser] 字段 '{field_name}' 解析成功: {value}")
+                
+        except struct.error as e:
+            error_msg = f"字段 '{field_name}' 解析浮点数时出错: {str(e)}"
+            logger.error(f"[HEX Parser] {error_msg}")
+            raise ValueError(error_msg)
+        except Exception as e:
+            error_msg = f"字段 '{field_name}' 解析时发生未知错误: {str(e)}"
+            logger.error(f"[HEX Parser] {error_msg}")
+            raise ValueError(error_msg)
+    
+    logger.info(f"[HEX Parser] 解析完成，结果: {result}")
+    logger.info(f"[HEX Parser] 解析详情: {'; '.join(parse_details)}")
     
     return result
 
