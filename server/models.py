@@ -8,6 +8,7 @@ Base = declarative_base()
 
 class DeviceStatus(enum.Enum):
     ONLINE = "online"
+    PENDING_OFFLINE = "pending_offline"
     OFFLINE = "offline"
     MAINTENANCE = "maintenance"
 
