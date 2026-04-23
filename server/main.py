@@ -14,10 +14,14 @@ import hashlib
 import secrets
 import string
 import time
+import re
+import json
+import struct
 
 from .models import (
     Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
-    User, UserRole, Complaint, ComplaintStatus, ComplaintReply
+    User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
+    DeviceProtocol, ProtocolType
 )
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
@@ -37,6 +41,237 @@ scheduler = AsyncIOScheduler()
 
 TEMPERATURE_THRESHOLD = 50
 ALERT_CONSECUTIVE_THRESHOLD = 3
+
+def parse_hex_payload(raw_payload: str, parse_config: dict) -> dict:
+    """
+    解析 HEX 格式的原始数据
+    parse_config 支持:
+    - byte_order: 字节序 ('big' 或 'little')
+    - fields: 字段定义，包含 offset(字节偏移)、length(字节数)、type(数据类型)
+    """
+    cleaned_hex = re.sub(r'[\s\-:,]', '', raw_payload).upper()
+    
+    if not re.match(r'^[0-9A-F]+$', cleaned_hex):
+        raise ValueError(f"Invalid HEX format: {raw_payload}")
+    
+    if len(cleaned_hex) % 2 != 0:
+        raise ValueError(f"HEX string has odd length: {len(cleaned_hex)}")
+    
+    byte_data = bytes.fromhex(cleaned_hex)
+    result = {}
+    
+    fields = parse_config.get('fields', [])
+    byte_order = parse_config.get('byte_order', 'big')
+    
+    for field in fields:
+        field_name = field.get('name')
+        offset = field.get('offset', 0)
+        length = field.get('length', 1)
+        data_type = field.get('type', 'uint')
+        
+        end_offset = offset + length
+        if end_offset > len(byte_data):
+            continue
+        
+        field_bytes = byte_data[offset:end_offset]
+        
+        if data_type == 'uint':
+            value = int.from_bytes(field_bytes, byteorder=byte_order, signed=False)
+        elif data_type == 'int':
+            value = int.from_bytes(field_bytes, byteorder=byte_order, signed=True)
+        elif data_type == 'float':
+            if length == 4:
+                value = struct.unpack('>f' if byte_order == 'big' else '<f', field_bytes)[0]
+            elif length == 8:
+                value = struct.unpack('>d' if byte_order == 'big' else '<d', field_bytes)[0]
+            else:
+                value = None
+        elif data_type == 'bcd':
+            value = 0
+            for b in field_bytes:
+                value = value * 100 + ((b >> 4) * 10 + (b & 0x0F))
+        else:
+            value = int.from_bytes(field_bytes, byteorder=byte_order, signed=False)
+        
+        if value is not None:
+            result[field_name] = value
+    
+    return result
+
+def parse_string_payload(raw_payload: str, parse_config: dict) -> dict:
+    """
+    解析字符串格式的原始数据
+    parse_config 支持:
+    - delimiter: 分隔符 (如 ',' 或 ' ')
+    - pattern: 正则表达式模式，使用命名组
+    - fields: 字段索引映射，如 {"temperature": 0, "humidity": 1}
+    """
+    result = {}
+    
+    if 'pattern' in parse_config:
+        pattern = parse_config['pattern']
+        match = re.match(pattern, raw_payload)
+        if match:
+            result = match.groupdict()
+    
+    elif 'delimiter' in parse_config:
+        delimiter = parse_config['delimiter']
+        parts = raw_payload.split(delimiter)
+        fields = parse_config.get('fields', {})
+        
+        for field_name, index in fields.items():
+            if isinstance(index, int) and 0 <= index < len(parts):
+                value = parts[index].strip()
+                try:
+                    if '.' in value or 'e' in value.lower():
+                        value = float(value)
+                    else:
+                        value = int(value)
+                except ValueError:
+                    pass
+                result[field_name] = value
+    
+    elif 'json_path' in parse_config:
+        try:
+            json_data = json.loads(raw_payload)
+            mappings = parse_config.get('json_path', {})
+            for field_name, path in mappings.items():
+                keys = path.split('.')
+                value = json_data
+                for key in keys:
+                    if isinstance(value, dict) and key in value:
+                        value = value[key]
+                    elif isinstance(value, list) and key.isdigit():
+                        idx = int(key)
+                        if 0 <= idx < len(value):
+                            value = value[idx]
+                        else:
+                            value = None
+                            break
+                    else:
+                        value = None
+                        break
+                if value is not None:
+                    result[field_name] = value
+        except json.JSONDecodeError:
+            pass
+    
+    return result
+
+def apply_transform_formulas(parsed_data: dict, transform_formulas: dict) -> dict:
+    """
+    应用转换公式将原始值转换为物理单位
+    transform_formulas 格式示例:
+    {
+        "temperature": {
+            "formula": "val * 0.1",
+            "input_range": [0, 1023],
+            "output_range": [0, 100]
+        },
+        "humidity": {
+            "formula": "val * 0.0976",
+            "input_range": [0, 1023]
+        }
+    }
+    
+    支持的公式变量:
+    - val: 原始值
+    - 支持基本数学运算: +, -, *, /, **, ()
+    """
+    result = dict(parsed_data)
+    
+    for field_name, config in transform_formulas.items():
+        if field_name not in parsed_data:
+            continue
+        
+        raw_value = parsed_data[field_name]
+        
+        if not isinstance(raw_value, (int, float)):
+            continue
+        
+        input_range = config.get('input_range')
+        if input_range and len(input_range) == 2:
+            min_val, max_val = input_range
+            if raw_value < min_val or raw_value > max_val:
+                continue
+        
+        formula = config.get('formula')
+        if formula:
+            try:
+                safe_vars = {
+                    'val': raw_value,
+                    'abs': abs,
+                    'min': min,
+                    'max': max,
+                    'int': int,
+                    'float': float,
+                    'round': round
+                }
+                
+                transformed_value = eval(formula, {"__builtins__": {}}, safe_vars)
+                
+                output_range = config.get('output_range')
+                if output_range and len(output_range) == 2:
+                    out_min, out_max = output_range
+                    transformed_value = max(out_min, min(out_max, transformed_value))
+                
+                result[field_name] = transformed_value
+                
+            except Exception as e:
+                print(f"[Transform] Error applying formula to {field_name}: {e}")
+                continue
+    
+    return result
+
+def get_device_protocol(device_id: str, db: Session) -> DeviceProtocol:
+    """
+    获取设备的活跃协议配置
+    """
+    protocol = db.query(DeviceProtocol).filter(
+        DeviceProtocol.device_id == device_id,
+        DeviceProtocol.is_active == True
+    ).first()
+    return protocol
+
+def parse_raw_payload(raw_payload: str, protocol: DeviceProtocol) -> dict:
+    """
+    根据协议配置解析原始数据
+    """
+    if not protocol:
+        return {}
+    
+    protocol_type = protocol.protocol_type
+    parse_config = protocol.parse_config or {}
+    
+    if protocol_type == ProtocolType.HEX:
+        return parse_hex_payload(raw_payload, parse_config)
+    elif protocol_type == ProtocolType.STRING:
+        return parse_string_payload(raw_payload, parse_config)
+    elif protocol_type == ProtocolType.JSON:
+        try:
+            return json.loads(raw_payload)
+        except json.JSONDecodeError:
+            return {}
+    else:
+        return {}
+
+def apply_field_mappings(parsed_data: dict, field_mappings: dict) -> dict:
+    """
+    应用字段映射，将解析出的字段映射到标准字段名
+    field_mappings 格式示例:
+    {
+        "temp": "temperature",
+        "hum": "humidity",
+        "t": "temperature"
+    }
+    """
+    result = dict(parsed_data)
+    
+    for source_field, target_field in field_mappings.items():
+        if source_field in parsed_data and source_field != target_field:
+            result[target_field] = parsed_data[source_field]
+    
+    return result
 
 def check_all_devices_status():
     db = SessionLocal()
@@ -191,7 +426,8 @@ class HeartbeatResponse(BaseModel):
 
 class DeviceDataReport(BaseModel):
     device_id: str
-    payload: dict
+    payload: dict = None
+    raw_payload: str = None
 
 @app.post("/devices/register")
 def register_device(device_data: DeviceRegister, db: Session = Depends(get_db)):
@@ -427,6 +663,52 @@ def report_device_data(
         )
     
     payload = data_report.payload
+    parsed_info = {}
+    
+    if data_report.raw_payload is not None and data_report.raw_payload != "":
+        protocol = get_device_protocol(data_report.device_id, db)
+        
+        if protocol is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No active protocol configured for device {data_report.device_id}. "
+                       f"Please configure a DeviceProtocol for this device to use raw_payload."
+            )
+        
+        try:
+            parsed_data = parse_raw_payload(data_report.raw_payload, protocol)
+            
+            field_mappings = protocol.field_mappings or {}
+            mapped_data = apply_field_mappings(parsed_data, field_mappings)
+            
+            transform_formulas = protocol.transform_formulas or {}
+            final_data = apply_transform_formulas(mapped_data, transform_formulas)
+            
+            payload = final_data
+            
+            parsed_info = {
+                "raw_payload": data_report.raw_payload,
+                "protocol_type": protocol.protocol_type.value,
+                "parsed_data": parsed_data,
+                "mapped_data": mapped_data,
+                "final_payload": final_data
+            }
+            
+            print(f"[Protocol Adapter] Device {data_report.device_id} parsed raw_payload: "
+                  f"raw={data_report.raw_payload} -> final={final_data}")
+            
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse raw_payload: {str(e)}"
+            )
+    
+    if payload is None:
+        raise HTTPException(
+            status_code=400,
+            detail="Either 'payload' or 'raw_payload' must be provided"
+        )
+    
     temperature = None
     humidity = None
     
@@ -442,10 +724,14 @@ def report_device_data(
     if temperature is not None and isinstance(temperature, (int, float)):
         is_alert = temperature > TEMPERATURE_THRESHOLD
     
+    full_payload = dict(payload)
+    if parsed_info:
+        full_payload["_raw_parsed"] = parsed_info
+    
     new_data = DeviceData(
         id=str(uuid.uuid4()),
         device_id=data_report.device_id,
-        payload=payload,
+        payload=full_payload,
         recorded_at=datetime.utcnow()
     )
     db.add(new_data)
@@ -453,7 +739,7 @@ def report_device_data(
     history_record = DeviceDataHistory(
         id=str(uuid.uuid4()),
         device_id=data_report.device_id,
-        payload=payload,
+        payload=full_payload,
         timestamp=datetime.utcnow(),
         temperature=temperature,
         humidity=humidity,
@@ -468,7 +754,7 @@ def report_device_data(
     db.refresh(new_data)
     db.refresh(history_record)
     
-    return {
+    response_data = {
         "message": "Data reported successfully",
         "data_id": new_data.id,
         "history_id": history_record.id,
@@ -476,6 +762,14 @@ def report_device_data(
         "payload": new_data.payload,
         "recorded_at": new_data.recorded_at
     }
+    
+    if parsed_info:
+        response_data["protocol_info"] = {
+            "protocol_type": parsed_info.get("protocol_type"),
+            "raw_payload_length": len(data_report.raw_payload) if data_report.raw_payload else 0
+        }
+    
+    return response_data
 
 def get_latest_device_data(device_id: str, db: Session):
     latest_data = db.query(DeviceData).filter(

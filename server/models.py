@@ -52,6 +52,28 @@ class DeviceDataHistory(Base):
     humidity = Column(Float, nullable=True)
     is_alert = Column(Boolean, default=False, index=True)
 
+class ProtocolType(enum.Enum):
+    JSON = "json"
+    HEX = "hex"
+    STRING = "string"
+    BINARY = "binary"
+
+class DeviceProtocol(Base):
+    __tablename__ = "device_protocols"
+
+    id = Column(String(36), primary_key=True, index=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
+    protocol_type = Column(Enum(ProtocolType), default=ProtocolType.JSON)
+    is_active = Column(Boolean, default=True)
+    
+    parse_config = Column(JSON, nullable=False, default=dict)
+    field_mappings = Column(JSON, nullable=False, default=dict)
+    transform_formulas = Column(JSON, nullable=False, default=dict)
+    
+    description = Column(String(500), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
 class UserRole(enum.Enum):
     GUEST = "guest"
     STAFF = "staff"
