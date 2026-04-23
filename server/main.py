@@ -32,7 +32,8 @@ logger = logging.getLogger("ProtocolAdapter")
 from .models import (
     Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
     User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
-    DeviceProtocol, ProtocolType, DeviceStatusEvent
+    DeviceProtocol, ProtocolType, DeviceStatusEvent,
+    AuditLog, OperationType, RiskLevel
 )
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
@@ -723,6 +724,10 @@ async def lifespan(app: FastAPI):
     )
     scheduler.start()
     print(f"[Scheduler] Started - checking devices every {CHECK_INTERVAL} seconds")
+    
+    start_audit_processor()
+    print("[Audit] Audit log processor started")
+    
     yield
     scheduler.shutdown()
     print("[Scheduler] Stopped")
@@ -776,6 +781,211 @@ def get_db():
     finally:
         db.close()
 
+HIGH_RISK_OPERATIONS = {
+    OperationType.DEVICE_DELETE,
+    OperationType.DATA_CLEAR,
+    OperationType.USER_DELETE
+}
+
+def calculate_changes(old_values: dict, new_values: dict) -> dict:
+    if old_values is None:
+        old_values = {}
+    if new_values is None:
+        new_values = {}
+    
+    changes = {
+        "added": {},
+        "removed": {},
+        "modified": {}
+    }
+    
+    all_keys = set(old_values.keys()) | set(new_values.keys())
+    
+    for key in all_keys:
+        if key not in old_values:
+            changes["added"][key] = new_values[key]
+        elif key not in new_values:
+            changes["removed"][key] = old_values[key]
+        elif old_values[key] != new_values[key]:
+            changes["modified"][key] = {
+                "old": old_values[key],
+                "new": new_values[key]
+            }
+    
+    if not changes["added"] and not changes["removed"] and not changes["modified"]:
+        return None
+    
+    return changes
+
+def serialize_model(obj) -> dict:
+    if obj is None:
+        return None
+    
+    result = {}
+    for column in obj.__table__.columns:
+        value = getattr(obj, column.name)
+        if isinstance(value, (datetime, enum.Enum)):
+            result[column.name] = str(value)
+        else:
+            result[column.name] = value
+    return result
+
+def create_audit_log(
+    db: Session,
+    operation_type: OperationType,
+    operation_desc: str = None,
+    user_id: str = None,
+    device_id: str = None,
+    ip_address: str = None,
+    old_values: dict = None,
+    new_values: dict = None,
+    status: str = "success",
+    error_message: str = None
+) -> AuditLog:
+    
+    changes = calculate_changes(old_values, new_values)
+    
+    risk_level = RiskLevel.HIGH if operation_type in HIGH_RISK_OPERATIONS else RiskLevel.MEDIUM
+    
+    audit_log = AuditLog(
+        id=str(uuid.uuid4()),
+        operation_type=operation_type,
+        operation_desc=operation_desc,
+        user_id=user_id,
+        device_id=device_id,
+        ip_address=ip_address,
+        risk_level=risk_level,
+        old_values=old_values,
+        new_values=new_values,
+        changes=changes,
+        status=status,
+        error_message=error_message,
+        created_at=datetime.utcnow()
+    )
+    
+    db.add(audit_log)
+    db.commit()
+    db.refresh(audit_log)
+    
+    logger.info(f"[AuditLog] Created: type={operation_type.value}, risk={risk_level.value}, device={device_id}")
+    
+    if risk_level == RiskLevel.HIGH:
+        _print_high_risk_alert(audit_log)
+    
+    return audit_log
+
+def _print_high_risk_alert(audit_log: AuditLog):
+    banner = "\n"
+    banner += "╔" + "═" * 78 + "╗\n"
+    banner += "║" + " " * 78 + "║\n"
+    banner += "║  🚨  HIGH RISK OPERATION DETECTED  🚨" + " " * 34 + "║\n"
+    banner += "║" + " " * 78 + "║\n"
+    banner += f"║  Operation: {audit_log.operation_type.value:<53}║\n"
+    if audit_log.operation_desc:
+        banner += f"║  Description: {audit_log.operation_desc:<51}║\n"
+    banner += f"║  User ID: {audit_log.user_id or 'N/A':<57}║\n"
+    banner += f"║  Device ID: {audit_log.device_id or 'N/A':<55}║\n"
+    banner += f"║  IP Address: {audit_log.ip_address or 'N/A':<54}║\n"
+    banner += f"║  Timestamp: {audit_log.created_at:<54}║\n"
+    if audit_log.changes:
+        banner += "║  Changes: " + " " * 64 + "║\n"
+        if audit_log.changes.get("removed"):
+            for key, value in audit_log.changes["removed"].items():
+                val_str = str(value)[:40]
+                banner += f"║    - REMOVED: {key} = {val_str:<38}║\n"
+        if audit_log.changes.get("modified"):
+            for key, diff in audit_log.changes["modified"].items():
+                old_str = str(diff.get('old', ''))[:20]
+                new_str = str(diff.get('new', ''))[:20]
+                banner += f"║    - MODIFIED: {key}: {old_str} -> {new_str:<25}║\n"
+    banner += "║" + " " * 78 + "║\n"
+    banner += "╚" + "═" * 78 + "╝\n"
+    
+    print(banner)
+
+audit_log_queue = deque(maxlen=1000)
+audit_log_lock = threading.Lock()
+
+def enqueue_audit_log(
+    operation_type: OperationType,
+    operation_desc: str = None,
+    user_id: str = None,
+    device_id: str = None,
+    ip_address: str = None,
+    old_values: dict = None,
+    new_values: dict = None,
+    status: str = "success",
+    error_message: str = None
+):
+    audit_entry = {
+        "operation_type": operation_type,
+        "operation_desc": operation_desc,
+        "user_id": user_id,
+        "device_id": device_id,
+        "ip_address": ip_address,
+        "old_values": old_values,
+        "new_values": new_values,
+        "status": status,
+        "error_message": error_message,
+        "queued_at": datetime.utcnow()
+    }
+    
+    with audit_log_lock:
+        audit_log_queue.append(audit_entry)
+    
+    logger.debug(f"[AuditQueue] Enqueued: type={operation_type.value}")
+
+def process_audit_queue():
+    db = None
+    try:
+        db = SessionLocal()
+        
+        with audit_log_lock:
+            entries_to_process = list(audit_log_queue)
+            audit_log_queue.clear()
+        
+        for entry in entries_to_process:
+            try:
+                create_audit_log(
+                    db=db,
+                    operation_type=entry["operation_type"],
+                    operation_desc=entry.get("operation_desc"),
+                    user_id=entry.get("user_id"),
+                    device_id=entry.get("device_id"),
+                    ip_address=entry.get("ip_address"),
+                    old_values=entry.get("old_values"),
+                    new_values=entry.get("new_values"),
+                    status=entry.get("status", "success"),
+                    error_message=entry.get("error_message")
+                )
+            except Exception as e:
+                logger.error(f"[AuditQueue] Failed to process audit entry: {e}")
+        
+        db.commit()
+        
+    except Exception as e:
+        logger.error(f"[AuditQueue] Error processing audit queue: {e}")
+    finally:
+        if db:
+            db.close()
+
+def start_audit_processor():
+    def run_processor():
+        while True:
+            time.sleep(1)
+            with audit_log_lock:
+                if len(audit_log_queue) > 0:
+                    break
+            continue
+        
+        while True:
+            process_audit_queue()
+            time.sleep(5)
+    
+    thread = threading.Thread(target=run_processor, daemon=True)
+    thread.start()
+    logger.info("[AuditProcessor] Started audit log processor thread")
+
 class DeviceRegister(BaseModel):
     device_id: str
     model: str
@@ -801,7 +1011,12 @@ class DeviceDataReport(BaseModel):
     raw_payload: str = None
 
 @app.post("/devices/register")
-def register_device(device_data: DeviceRegister, db: Session = Depends(get_db)):
+def register_device(
+    device_data: DeviceRegister,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
     existing_device = db.query(Device).filter(
         Device.device_id == device_data.device_id
     ).first()
@@ -827,12 +1042,195 @@ def register_device(device_data: DeviceRegister, db: Session = Depends(get_db)):
     db.commit()
     db.refresh(new_device)
     
+    new_values = serialize_model(new_device)
+    create_audit_log(
+        db=db,
+        operation_type=OperationType.DEVICE_REGISTER,
+        operation_desc=f"Registered new device: {device_data.device_id}",
+        user_id=x_user_id,
+        device_id=new_device.device_id,
+        ip_address=x_real_ip,
+        new_values=new_values
+    )
+    
     return {
         "message": "Device registered successfully",
         "device_id": new_device.device_id,
         "model": new_device.model,
         "status": new_device.status.value,
         "secret_key": new_device.secret_key
+    }
+
+@app.delete("/devices/{device_id}")
+def delete_device(
+    device_id: str,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found."
+        )
+    
+    old_values = serialize_model(device)
+    
+    data_count = db.query(DeviceData).filter(
+        DeviceData.device_id == device_id
+    ).count()
+    history_count = db.query(DeviceDataHistory).filter(
+        DeviceDataHistory.device_id == device_id
+    ).count()
+    
+    db.query(DeviceStatusEvent).filter(
+        DeviceStatusEvent.device_id == device_id
+    ).delete(synchronize_session=False)
+    
+    db.query(DeviceProtocol).filter(
+        DeviceProtocol.device_id == device_id
+    ).delete(synchronize_session=False)
+    
+    db.query(DeviceData).filter(
+        DeviceData.device_id == device_id
+    ).delete(synchronize_session=False)
+    
+    db.query(DeviceDataHistory).filter(
+        DeviceDataHistory.device_id == device_id
+    ).delete(synchronize_session=False)
+    
+    db.delete(device)
+    db.commit()
+    
+    create_audit_log(
+        db=db,
+        operation_type=OperationType.DEVICE_DELETE,
+        operation_desc=f"Deleted device: {device_id} (removed {data_count} data records, {history_count} history records)",
+        user_id=x_user_id,
+        device_id=device_id,
+        ip_address=x_real_ip,
+        old_values=old_values
+    )
+    
+    return {
+        "message": "Device deleted successfully",
+        "device_id": device_id,
+        "removed_data_count": data_count,
+        "removed_history_count": history_count
+    }
+
+class ThresholdUpdate(BaseModel):
+    temperature_threshold: float = None
+    alert_consecutive_threshold: int = None
+
+@app.put("/settings/thresholds")
+def update_thresholds(
+    threshold_data: ThresholdUpdate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    global TEMPERATURE_THRESHOLD, ALERT_CONSECUTIVE_THRESHOLD
+    
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    old_values = {
+        "temperature_threshold": TEMPERATURE_THRESHOLD,
+        "alert_consecutive_threshold": ALERT_CONSECUTIVE_THRESHOLD
+    }
+    
+    new_values = dict(old_values)
+    
+    if threshold_data.temperature_threshold is not None:
+        TEMPERATURE_THRESHOLD = threshold_data.temperature_threshold
+        new_values["temperature_threshold"] = threshold_data.temperature_threshold
+    
+    if threshold_data.alert_consecutive_threshold is not None:
+        ALERT_CONSECUTIVE_THRESHOLD = threshold_data.alert_consecutive_threshold
+        new_values["alert_consecutive_threshold"] = threshold_data.alert_consecutive_threshold
+    
+    create_audit_log(
+        db=db,
+        operation_type=OperationType.THRESHOLD_UPDATE,
+        operation_desc="Updated system thresholds",
+        user_id=x_user_id,
+        ip_address=x_real_ip,
+        old_values=old_values,
+        new_values=new_values
+    )
+    
+    return {
+        "message": "Thresholds updated successfully",
+        "old_values": old_values,
+        "new_values": new_values
+    }
+
+@app.delete("/devices/{device_id}/history")
+def clear_device_history(
+    device_id: str,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found."
+        )
+    
+    data_count = db.query(DeviceData).filter(
+        DeviceData.device_id == device_id
+    ).count()
+    history_count = db.query(DeviceDataHistory).filter(
+        DeviceDataHistory.device_id == device_id
+    ).count()
+    
+    old_values = {
+        "device_id": device_id,
+        "data_record_count": data_count,
+        "history_record_count": history_count
+    }
+    
+    db.query(DeviceData).filter(
+        DeviceData.device_id == device_id
+    ).delete(synchronize_session=False)
+    
+    db.query(DeviceDataHistory).filter(
+        DeviceDataHistory.device_id == device_id
+    ).delete(synchronize_session=False)
+    
+    db.commit()
+    
+    create_audit_log(
+        db=db,
+        operation_type=OperationType.DATA_CLEAR,
+        operation_desc=f"Cleared history for device: {device_id} (removed {data_count} data records, {history_count} history records)",
+        user_id=x_user_id,
+        device_id=device_id,
+        ip_address=x_real_ip,
+        old_values=old_values
+    )
+    
+    return {
+        "message": "Device history cleared successfully",
+        "device_id": device_id,
+        "removed_data_count": data_count,
+        "removed_history_count": history_count
     }
 
 def create_command(command: str, value: str, reason: str = None) -> dict:
@@ -1953,4 +2351,73 @@ def get_device_history(
         "min_interval_seconds": MIN_INTERVAL_SECONDS,
         "total_data_points": len(data_points),
         "data_points": data_points
+    }
+
+@app.get("/audit/logs")
+def get_audit_logs(
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    device_id: str = Query(None, description="Filter by device ID"),
+    user_id: str = Query(None, description="Filter by user ID"),
+    operation_type: str = Query(None, description="Filter by operation type"),
+    risk_level: str = Query(None, description="Filter by risk level (low/medium/high)"),
+    since: str = Query(None, description="Only return logs after this timestamp (ISO format)"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of logs to return"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    query = db.query(AuditLog)
+    
+    if device_id:
+        query = query.filter(AuditLog.device_id == device_id)
+    
+    if user_id:
+        query = query.filter(AuditLog.user_id == user_id)
+    
+    if operation_type:
+        try:
+            op_type = OperationType(operation_type)
+            query = query.filter(AuditLog.operation_type == op_type)
+        except ValueError:
+            pass
+    
+    if risk_level:
+        try:
+            r_level = RiskLevel(risk_level)
+            query = query.filter(AuditLog.risk_level == r_level)
+        except ValueError:
+            pass
+    
+    if since:
+        try:
+            since_dt = datetime.fromisoformat(since)
+            query = query.filter(AuditLog.created_at >= since_dt)
+        except ValueError:
+            pass
+    
+    logs = query.order_by(desc(AuditLog.created_at)).limit(limit).all()
+    
+    result = []
+    for log in logs:
+        result.append({
+            "id": log.id,
+            "operation_type": log.operation_type.value if log.operation_type else None,
+            "operation_desc": log.operation_desc,
+            "user_id": log.user_id,
+            "device_id": log.device_id,
+            "ip_address": log.ip_address,
+            "risk_level": log.risk_level.value if log.risk_level else None,
+            "old_values": log.old_values,
+            "new_values": log.new_values,
+            "changes": log.changes,
+            "status": log.status,
+            "error_message": log.error_message,
+            "created_at": log.created_at.isoformat() if log.created_at else None
+        })
+    
+    return {
+        "logs": result,
+        "count": len(result),
+        "limit": limit
     }

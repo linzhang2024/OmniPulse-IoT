@@ -140,3 +140,42 @@ class ComplaintReply(Base):
     
     complaint = relationship("Complaint", back_populates="replies")
     user = relationship("User", back_populates="replies")
+
+class OperationType(enum.Enum):
+    DEVICE_REGISTER = "device_register"
+    DEVICE_DELETE = "device_delete"
+    DEVICE_UPDATE = "device_update"
+    DEVICE_CONTROL = "device_control"
+    DATA_DELETE = "data_delete"
+    DATA_CLEAR = "data_clear"
+    PROTOCOL_UPDATE = "protocol_update"
+    THRESHOLD_UPDATE = "threshold_update"
+    USER_CREATE = "user_create"
+    USER_UPDATE = "user_update"
+    USER_DELETE = "user_delete"
+    COMPLAINT_UPDATE = "complaint_update"
+    SETTING_UPDATE = "setting_update"
+
+class RiskLevel(enum.Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+
+class AuditLog(Base):
+    __tablename__ = "audit_logs"
+
+    id = Column(String(36), primary_key=True, index=True)
+    operation_type = Column(Enum(OperationType), nullable=False, index=True)
+    operation_desc = Column(String(500), nullable=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=True, index=True)
+    ip_address = Column(String(64), nullable=True)
+    risk_level = Column(Enum(RiskLevel), default=RiskLevel.LOW, index=True)
+    old_values = Column(JSON, nullable=True)
+    new_values = Column(JSON, nullable=True)
+    changes = Column(JSON, nullable=True)
+    status = Column(String(32), default="success")
+    error_message = Column(String(1000), nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    user = relationship("User", foreign_keys=[user_id])
