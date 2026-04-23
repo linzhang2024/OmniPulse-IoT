@@ -36,7 +36,16 @@ from .models import (
     Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
     User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
     DeviceProtocol, ProtocolType, DeviceStatusEvent,
-    AuditLog, OperationType, RiskLevel
+    AuditLog, OperationType, RiskLevel,
+    ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType
+)
+
+from .report_engine import (
+    report_engine, 
+    ScheduledReportManager,
+    REPORTS_DIR,
+    EXPORT_BATCH_SIZE,
+    DEFAULT_REPORT_RETENTION_HOURS
 )
 
 DATABASE_URL = "sqlite:///./iot_devices.db"
@@ -718,6 +727,67 @@ def check_all_devices_status():
     finally:
         db.close()
 
+def get_session_local_factory():
+    return SessionLocal
+
+def init_report_engine():
+    db = SessionLocal()
+    try:
+        report_engine.ensure_reports_dir()
+        
+        scheduled_manager = ScheduledReportManager(report_engine, scheduler)
+        daily_config = scheduled_manager.ensure_daily_briefing_config(db)
+        
+        print(f"[ReportEngine] Report directory initialized: {REPORTS_DIR}")
+        print(f"[ReportEngine] Daily briefing config: {daily_config.name} (cron: {daily_config.cron_expression})")
+        
+        scheduled_manager.load_active_configs(db)
+        
+        def schedule_with_session():
+            scheduled_manager._execute_scheduled_report(daily_config.id, get_session_local_factory)
+        
+        try:
+            from apscheduler.triggers.cron import CronTrigger
+            cron_expr = daily_config.cron_expression or "0 8 * * *"
+            cron_parts = cron_expr.split()
+            if len(cron_parts) == 5:
+                trigger = CronTrigger(
+                    minute=cron_parts[0],
+                    hour=cron_parts[1],
+                    day=cron_parts[2],
+                    month=cron_parts[3],
+                    day_of_week=cron_parts[4]
+                )
+            else:
+                trigger = CronTrigger(hour=8, minute=0)
+            
+            scheduler.add_job(
+                schedule_with_session,
+                trigger=trigger,
+                id=f"scheduled_report_{daily_config.id}",
+                name=f"Scheduled Report: {daily_config.name}",
+                replace_existing=True
+            )
+            print(f"[ReportEngine] Scheduled daily briefing with cron: {cron_expr}")
+        except Exception as e:
+            print(f"[ReportEngine] Warning: Failed to schedule daily briefing: {e}")
+        
+        try:
+            scheduler.add_job(
+                lambda: report_engine.cleanup_expired_reports(SessionLocal()),
+                'interval',
+                hours=1,
+                id="cleanup_expired_reports",
+                name="Cleanup expired reports",
+                replace_existing=True
+            )
+            print(f"[ReportEngine] Scheduled hourly cleanup of expired reports")
+        except Exception as e:
+            print(f"[ReportEngine] Warning: Failed to schedule cleanup: {e}")
+        
+    finally:
+        db.close()
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     scheduler.add_job(
@@ -730,6 +800,12 @@ async def lifespan(app: FastAPI):
     
     start_audit_processor()
     print("[Audit] Audit log processor started")
+    
+    try:
+        init_report_engine()
+    except Exception as e:
+        print(f"[ReportEngine] Failed to initialize: {e}")
+        logger.error(f"[ReportEngine] Init failed: {e}", exc_info=True)
     
     yield
     scheduler.shutdown()
@@ -2856,4 +2932,371 @@ def get_audit_logs(
         "logs": result,
         "count": len(result),
         "limit": limit
+    }
+
+class ExportTaskCreate(BaseModel):
+    device_id: str
+    task_name: str = None
+    start_time: str = None
+    end_time: str = None
+    include_payload: bool = True
+    retention_hours: int = DEFAULT_REPORT_RETENTION_HOURS
+
+@app.post("/api/reports/export")
+def create_export_task(
+    export_data: ExportTaskCreate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(Device.device_id == export_data.device_id).first()
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Device not found: {export_data.device_id}"
+        )
+    
+    start_time = None
+    if export_data.start_time:
+        try:
+            start_time = datetime.fromisoformat(export_data.start_time)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid start_time format. Use ISO format: YYYY-MM-DDTHH:MM:SS"
+            )
+    
+    end_time = None
+    if export_data.end_time:
+        try:
+            end_time = datetime.fromisoformat(export_data.end_time)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail="Invalid end_time format. Use ISO format: YYYY-MM-DDTHH:MM:SS"
+            )
+    
+    task = report_engine.create_export_task(
+        db=db,
+        device_id=export_data.device_id,
+        task_name=export_data.task_name,
+        user_id=x_user_id,
+        start_time=start_time,
+        end_time=end_time,
+        include_payload=export_data.include_payload,
+        retention_hours=export_data.retention_hours
+    )
+    
+    success = report_engine.start_export_task_async(db, task.id, get_session_local_factory)
+    
+    if not success:
+        raise HTTPException(
+            status_code=500,
+            detail="Failed to start export task"
+        )
+    
+    task_status = report_engine.get_task_status(db, task.id)
+    
+    return {
+        "message": "Export task created successfully",
+        "task": task_status
+    }
+
+@app.get("/api/reports/{task_id}")
+def get_report_task_status(
+    task_id: str,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    task_status = report_engine.get_task_status(db, task_id)
+    
+    if not task_status:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Report task not found: {task_id}"
+        )
+    
+    return task_status
+
+@app.get("/api/reports/download/{task_id}")
+def download_report(
+    task_id: str,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    task = db.query(ReportTask).filter(ReportTask.id == task_id).first()
+    
+    if not task:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Report task not found: {task_id}"
+        )
+    
+    if task.status != ReportTaskStatus.COMPLETED:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Report is not ready. Current status: {task.status.value}"
+        )
+    
+    if not task.file_path or not os.path.exists(task.file_path):
+        raise HTTPException(
+            status_code=404,
+            detail="Report file not found"
+        )
+    
+    if task.expire_at and datetime.utcnow() > task.expire_at:
+        raise HTTPException(
+            status_code=410,
+            detail="Report has expired"
+        )
+    
+    file_name = task.file_name or f"report_{task_id}.csv"
+    media_type = "text/csv" if file_name.endswith('.csv') else "application/octet-stream"
+    
+    return FileResponse(
+        path=task.file_path,
+        media_type=media_type,
+        filename=file_name
+    )
+
+@app.get("/api/reports")
+def list_report_tasks(
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    device_id: str = Query(None, description="Filter by device ID"),
+    status: str = Query(None, description="Filter by status"),
+    limit: int = Query(100, ge=1, le=1000, description="Maximum number of tasks to return"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(ReportTask)
+    
+    if device_id:
+        query = query.filter(ReportTask.device_id == device_id)
+    
+    if status:
+        try:
+            status_enum = ReportTaskStatus(status)
+            query = query.filter(ReportTask.status == status_enum)
+        except ValueError:
+            pass
+    
+    tasks = query.order_by(desc(ReportTask.created_at)).limit(limit).all()
+    
+    result = []
+    for task in tasks:
+        result.append({
+            "id": task.id,
+            "task_name": task.task_name,
+            "device_id": task.device_id,
+            "status": task.status.value,
+            "progress": task.progress,
+            "record_count": task.record_count,
+            "file_size_bytes": task.file_size_bytes,
+            "file_name": task.file_name,
+            "download_url": task.download_url,
+            "error_message": task.error_message,
+            "start_time": task.start_time.isoformat() if task.start_time else None,
+            "completed_at": task.completed_at.isoformat() if task.completed_at else None,
+            "expire_at": task.expire_at.isoformat() if task.expire_at else None,
+            "created_at": task.created_at.isoformat() if task.created_at else None
+        })
+    
+    return {
+        "tasks": result,
+        "count": len(result),
+        "limit": limit
+    }
+
+@app.get("/api/scheduled-reports")
+def list_scheduled_reports(
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    is_active: bool = Query(None, description="Filter by active status"),
+    db: Session = Depends(get_db)
+):
+    query = db.query(ScheduledReportConfig)
+    
+    if is_active is not None:
+        query = query.filter(ScheduledReportConfig.is_active == is_active)
+    
+    configs = query.order_by(desc(ScheduledReportConfig.created_at)).all()
+    
+    result = []
+    for config in configs:
+        result.append({
+            "id": config.id,
+            "name": config.name,
+            "description": config.description,
+            "report_type": config.report_type.value if config.report_type else None,
+            "cron_expression": config.cron_expression,
+            "device_ids": config.device_ids,
+            "filters": config.filters,
+            "export_format": config.export_format,
+            "output_directory": config.output_directory,
+            "retention_days": config.retention_days,
+            "file_name_template": config.file_name_template,
+            "is_active": config.is_active,
+            "last_run_at": config.last_run_at.isoformat() if config.last_run_at else None,
+            "last_run_status": config.last_run_status,
+            "last_run_error": config.last_run_error,
+            "created_at": config.created_at.isoformat() if config.created_at else None,
+            "updated_at": config.updated_at.isoformat() if config.updated_at else None
+        })
+    
+    return {
+        "configs": result,
+        "count": len(result)
+    }
+
+class ScheduledReportCreate(BaseModel):
+    name: str
+    description: str = None
+    report_type: str = "daily_briefing"
+    cron_expression: str = "0 8 * * *"
+    device_ids: list = None
+    filters: dict = None
+    export_format: str = "csv"
+    output_directory: str = "./reports"
+    retention_days: int = 7
+    file_name_template: str = None
+    is_active: bool = True
+
+@app.post("/api/scheduled-reports")
+def create_scheduled_report(
+    config_data: ScheduledReportCreate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    try:
+        report_type = ScheduledReportType(config_data.report_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid report_type. Must be one of: {[t.value for t in ScheduledReportType]}"
+        )
+    
+    config = ScheduledReportConfig(
+        id=str(uuid.uuid4()),
+        name=config_data.name,
+        description=config_data.description,
+        report_type=report_type,
+        cron_expression=config_data.cron_expression,
+        device_ids=config_data.device_ids,
+        filters=config_data.filters,
+        export_format=config_data.export_format,
+        output_directory=config_data.output_directory,
+        retention_days=config_data.retention_days,
+        file_name_template=config_data.file_name_template,
+        is_active=config_data.is_active
+    )
+    
+    db.add(config)
+    db.commit()
+    db.refresh(config)
+    
+    if config.is_active and scheduler:
+        try:
+            scheduled_manager = ScheduledReportManager(report_engine, scheduler)
+            scheduled_manager.schedule_config(config, db)
+        except Exception as e:
+            logger.warning(f"[ScheduledReport] Failed to schedule new config: {e}")
+    
+    return {
+        "message": "Scheduled report config created successfully",
+        "config": {
+            "id": config.id,
+            "name": config.name,
+            "report_type": config.report_type.value if config.report_type else None,
+            "cron_expression": config.cron_expression,
+            "is_active": config.is_active
+        }
+    }
+
+@app.put("/api/scheduled-reports/{config_id}")
+def update_scheduled_report(
+    config_id: str,
+    config_data: ScheduledReportCreate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    config = db.query(ScheduledReportConfig).filter(
+        ScheduledReportConfig.id == config_id
+    ).first()
+    
+    if not config:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Scheduled report config not found: {config_id}"
+        )
+    
+    config.name = config_data.name
+    config.description = config_data.description
+    config.cron_expression = config_data.cron_expression
+    config.device_ids = config_data.device_ids
+    config.filters = config_data.filters
+    config.export_format = config_data.export_format
+    config.output_directory = config_data.output_directory
+    config.retention_days = config_data.retention_days
+    config.file_name_template = config_data.file_name_template
+    config.is_active = config_data.is_active
+    
+    try:
+        config.report_type = ScheduledReportType(config_data.report_type)
+    except ValueError:
+        pass
+    
+    db.commit()
+    db.refresh(config)
+    
+    if scheduler:
+        try:
+            scheduled_manager = ScheduledReportManager(report_engine, scheduler)
+            scheduled_manager.schedule_config(config, db)
+        except Exception as e:
+            logger.warning(f"[ScheduledReport] Failed to reschedule config: {e}")
+    
+    return {
+        "message": "Scheduled report config updated successfully",
+        "config": {
+            "id": config.id,
+            "name": config.name,
+            "is_active": config.is_active
+        }
+    }
+
+@app.delete("/api/scheduled-reports/{config_id}")
+def delete_scheduled_report(
+    config_id: str,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    config = db.query(ScheduledReportConfig).filter(
+        ScheduledReportConfig.id == config_id
+    ).first()
+    
+    if not config:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Scheduled report config not found: {config_id}"
+        )
+    
+    if scheduler:
+        try:
+            job_id = f"scheduled_report_{config_id}"
+            scheduler.remove_job(job_id)
+        except Exception as e:
+            logger.warning(f"[ScheduledReport] Failed to remove job: {e}")
+    
+    db.delete(config)
+    db.commit()
+    
+    return {
+        "message": "Scheduled report config deleted successfully",
+        "config_id": config_id
     }

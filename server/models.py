@@ -177,3 +177,71 @@ class AuditLog(Base):
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     
     user = relationship("User", foreign_keys=[user_id])
+
+class ReportTaskStatus(enum.Enum):
+    PENDING = "pending"
+    PROCESSING = "processing"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+class ScheduledReportType(enum.Enum):
+    DAILY_BRIEFING = "daily_briefing"
+    WEEKLY_SUMMARY = "weekly_summary"
+    MONTHLY_REPORT = "monthly_report"
+
+class ReportTask(Base):
+    __tablename__ = "report_tasks"
+
+    id = Column(String(36), primary_key=True, index=True)
+    task_name = Column(String(255), nullable=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=True, index=True)
+    user_id = Column(String(36), ForeignKey("users.id"), nullable=True, index=True)
+    
+    status = Column(Enum(ReportTaskStatus), default=ReportTaskStatus.PENDING, index=True)
+    progress = Column(Integer, default=0)
+    
+    file_path = Column(String(500), nullable=True)
+    download_url = Column(String(500), nullable=True)
+    file_name = Column(String(255), nullable=True)
+    file_size_bytes = Column(Integer, default=0)
+    
+    record_count = Column(Integer, default=0)
+    error_message = Column(String(2000), nullable=True)
+    
+    start_time = Column(DateTime, nullable=True)
+    completed_at = Column(DateTime, nullable=True)
+    expire_at = Column(DateTime, nullable=True, index=True)
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    
+    filters = Column(JSON, nullable=True)
+    report_type = Column(String(64), nullable=True)
+    export_format = Column(String(16), default="csv")
+    
+    device = relationship("Device", foreign_keys=[device_id])
+    user = relationship("User", foreign_keys=[user_id])
+
+class ScheduledReportConfig(Base):
+    __tablename__ = "scheduled_report_configs"
+
+    id = Column(String(36), primary_key=True, index=True)
+    name = Column(String(255), nullable=False)
+    description = Column(String(500), nullable=True)
+    
+    report_type = Column(Enum(ScheduledReportType), default=ScheduledReportType.DAILY_BRIEFING, index=True)
+    cron_expression = Column(String(128), nullable=True)
+    
+    device_ids = Column(JSON, nullable=True)
+    filters = Column(JSON, nullable=True)
+    export_format = Column(String(16), default="csv")
+    
+    output_directory = Column(String(500), nullable=True)
+    retention_days = Column(Integer, default=7)
+    file_name_template = Column(String(255), nullable=True)
+    
+    is_active = Column(Boolean, default=True, index=True)
+    last_run_at = Column(DateTime, nullable=True)
+    last_run_status = Column(String(32), nullable=True)
+    last_run_error = Column(String(2000), nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
