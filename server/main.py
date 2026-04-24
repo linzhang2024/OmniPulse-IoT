@@ -26,10 +26,7 @@ import atexit
 import signal
 import enum
 import gc
-import weakref
 from pathlib import Path
-from dataclasses import dataclass, field
-from typing import List as TypingList
 from typing import Optional, Any, Dict, Set
 from sqlalchemy.orm import scoped_session
 
@@ -84,305 +81,6 @@ WEBHOOK_TIMEOUT = 5
 
 memory_event_queue = deque(maxlen=MAX_MEMORY_EVENTS)
 memory_event_lock = threading.Lock()
-
-ASYNC_QUEUE_MAXSIZE = int(os.getenv("ASYNC_QUEUE_MAXSIZE", "10000"))
-BULK_INSERT_THRESHOLD = int(os.getenv("BULK_INSERT_THRESHOLD", "100"))
-BULK_INSERT_INTERVAL = float(os.getenv("BULK_INSERT_INTERVAL", "3.0"))
-DEVICE_CACHE_TTL = int(os.getenv("DEVICE_CACHE_TTL", "60"))
-
-@dataclass
-class BufferedData:
-    device_id: str
-    payload: dict
-    temperature: Optional[float] = None
-    humidity: Optional[float] = None
-    is_alert: bool = False
-    recorded_at: datetime = field(default_factory=datetime.utcnow)
-    id: str = field(default_factory=lambda: str(uuid.uuid4()))
-
-@dataclass
-class CachedDeviceInfo:
-    device_id: str
-    secret_key: str
-    status: str
-    cached_at: datetime = field(default_factory=datetime.utcnow)
-
-class AsyncDataQueue:
-    def __init__(self):
-        self._queue: Optional[asyncio.Queue] = None
-        self._device_status_updates: Dict[str, datetime] = {}
-        self._flush_count: int = 0
-        self._total_records: int = 0
-        self._running: bool = False
-        self._worker_task: Optional[asyncio.Task] = None
-        self._shutdown_event: Optional[asyncio.Event] = None
-        
-    def initialize(self, loop: asyncio.AbstractEventLoop = None):
-        if loop is None:
-            loop = asyncio.get_event_loop()
-        self._queue = asyncio.Queue(maxsize=ASYNC_QUEUE_MAXSIZE)
-        self._shutdown_event = asyncio.Event()
-        self._running = True
-        logger.info(f"[AsyncQueue] Initialized with maxsize={ASYNC_QUEUE_MAXSIZE}")
-        
-    async def put(self, data: BufferedData, device_id: str):
-        if self._queue is None:
-            raise RuntimeError("AsyncDataQueue not initialized")
-        
-        self._device_status_updates[device_id] = data.recorded_at
-        
-        try:
-            await asyncio.wait_for(self._queue.put(data), timeout=5.0)
-        except asyncio.TimeoutError:
-            logger.warning("[AsyncQueue] Queue put timeout, dropping oldest item")
-            try:
-                self._queue.get_nowait()
-                await self._queue.put(data)
-            except Exception as e:
-                logger.error(f"[AsyncQueue] Failed to put item after timeout: {e}")
-        
-        return self._queue.qsize()
-    
-    async def _worker_loop(self):
-        logger.info("[AsyncQueue] Background worker started")
-        
-        while self._running:
-            try:
-                batch = []
-                status_updates = {}
-                
-                timeout = BULK_INSERT_INTERVAL
-                deadline = time.time() + timeout
-                
-                while len(batch) < BULK_INSERT_THRESHOLD and time.time() < deadline:
-                    try:
-                        remaining = deadline - time.time()
-                        if remaining <= 0:
-                            break
-                        
-                        data = await asyncio.wait_for(self._queue.get(), timeout=remaining)
-                        batch.append(data)
-                        
-                        if data.device_id not in status_updates:
-                            status_updates[data.device_id] = data.recorded_at
-                        else:
-                            if data.recorded_at > status_updates[data.device_id]:
-                                status_updates[data.device_id] = data.recorded_at
-                        
-                    except asyncio.TimeoutError:
-                        break
-                
-                if batch:
-                    await self._do_flush(batch, status_updates)
-                
-            except asyncio.CancelledError:
-                logger.info("[AsyncQueue] Worker cancelled")
-                break
-            except Exception as e:
-                logger.error(f"[AsyncQueue] Worker error: {e}")
-                await asyncio.sleep(1)
-        
-        logger.info("[AsyncQueue] Background worker stopped")
-    
-    async def _do_flush(self, batch: TypingList[BufferedData], status_updates: Dict[str, datetime]) -> int:
-        if not batch:
-            return 0
-        
-        try:
-            db = ScopedSession()
-            
-            data_mappings = []
-            history_mappings = []
-            
-            for data in batch:
-                data_mappings.append({
-                    "id": data.id,
-                    "device_id": data.device_id,
-                    "payload": data.payload,
-                    "recorded_at": data.recorded_at
-                })
-                
-                history_mappings.append({
-                    "id": str(uuid.uuid4()),
-                    "device_id": data.device_id,
-                    "payload": data.payload,
-                    "timestamp": data.recorded_at,
-                    "temperature": data.temperature,
-                    "humidity": data.humidity,
-                    "is_alert": data.is_alert
-                })
-            
-            if data_mappings:
-                db.bulk_insert_mappings(DeviceData, data_mappings)
-                db.bulk_insert_mappings(DeviceDataHistory, history_mappings)
-            
-            unique_device_ids = list(status_updates.keys())
-            if unique_device_ids:
-                devices = db.query(Device).filter(
-                    Device.device_id.in_(unique_device_ids)
-                ).all()
-                
-                for device in devices:
-                    last_seen = status_updates.get(device.device_id)
-                    if last_seen:
-                        old_status = device.status.value
-                        device.last_heartbeat = last_seen
-                        device.last_seen = last_seen
-                        
-                        if device.status != DeviceStatus.ONLINE:
-                            device.status = DeviceStatus.ONLINE
-                            new_status = device.status.value
-                            try:
-                                record_status_event(
-                                    db,
-                                    device.device_id,
-                                    "online",
-                                    old_status=old_status,
-                                    new_status=new_status,
-                                    reason="Device data reported via async queue",
-                                    details={"timestamp": last_seen.isoformat()}
-                                )
-                            except Exception:
-                                pass
-            
-            db.commit()
-            db.expire_all()
-            ScopedSession.remove()
-            
-            self._flush_count += 1
-            self._total_records += len(batch)
-            
-            if self._flush_count % 20 == 0:
-                logger.info(f"[AsyncQueue] Flushed {len(batch)} records, total: {self._total_records}, queue: {self._queue.qsize()}")
-            
-            gc.collect(generation=1)
-            
-            return len(batch)
-            
-        except Exception as e:
-            logger.error(f"[AsyncQueue] Flush error: {e}")
-            try:
-                db.rollback()
-            except:
-                pass
-            try:
-                ScopedSession.remove()
-            except:
-                pass
-            return 0
-    
-    def start_worker(self):
-        if not self._running:
-            self.initialize()
-        self._worker_task = asyncio.create_task(self._worker_loop())
-        logger.info("[AsyncQueue] Worker task started")
-    
-    async def stop_worker(self):
-        self._running = False
-        
-        if self._worker_task and not self._worker_task.done():
-            self._worker_task.cancel()
-            try:
-                await self._worker_task
-            except asyncio.CancelledError:
-                pass
-        
-        if self._queue and self._queue.qsize() > 0:
-            logger.warning(f"[AsyncQueue] Stopping with {self._queue.qsize()} items in queue")
-        
-        logger.info("[AsyncQueue] Worker stopped completely")
-    
-    def get_stats(self) -> dict:
-        return {
-            "queue_size": self._queue.qsize() if self._queue else 0,
-            "flush_count": self._flush_count,
-            "total_records": self._total_records,
-            "running": self._running,
-            "maxsize": ASYNC_QUEUE_MAXSIZE
-        }
-
-class DeviceInfoCache:
-    def __init__(self):
-        self._lock: threading.Lock = threading.Lock()
-        self._cache: Dict[str, CachedDeviceInfo] = {}
-        self._hits: int = 0
-        self._misses: int = 0
-    
-    def get(self, device_id: str, db: Session = None) -> Optional[CachedDeviceInfo]:
-        with self._lock:
-            cached = self._cache.get(device_id)
-            
-            if cached:
-                age = (datetime.utcnow() - cached.cached_at).total_seconds()
-                if age < DEVICE_CACHE_TTL:
-                    self._hits += 1
-                    return cached
-                
-                self._cache.pop(device_id, None)
-        
-        should_close = False
-        if db is None:
-            db = ScopedSession()
-            should_close = True
-        
-        try:
-            device = db.query(Device).filter(
-                Device.device_id == device_id
-            ).first()
-            
-            if device:
-                info = CachedDeviceInfo(
-                    device_id=device_id,
-                    secret_key=device.secret_key,
-                    status=device.status.value
-                )
-                
-                with self._lock:
-                    self._cache[device_id] = info
-                    self._misses += 1
-                
-                return info
-            else:
-                with self._lock:
-                    self._misses += 1
-                return None
-                
-        finally:
-            if should_close:
-                db.expire_all()
-                ScopedSession.remove()
-    
-    def invalidate(self, device_id: str):
-        with self._lock:
-            self._cache.pop(device_id, None)
-    
-    def clear_expired(self):
-        with self._lock:
-            now = datetime.utcnow()
-            expired_keys = [
-                k for k, v in self._cache.items()
-                if (now - v.cached_at).total_seconds() >= DEVICE_CACHE_TTL
-            ]
-            for k in expired_keys:
-                self._cache.pop(k, None)
-    
-    def get_stats(self) -> dict:
-        with self._lock:
-            total = self._hits + self._misses
-            hit_rate = self._hits / total if total > 0 else 0
-            return {
-                "cache_size": len(self._cache),
-                "hits": self._hits,
-                "misses": self._misses,
-                "hit_rate": hit_rate
-            }
-
-data_queue = AsyncDataQueue()
-device_cache = DeviceInfoCache()
-
-def force_gc_if_needed():
-    gc.collect()
-    gc.collect()
 
 class NotificationEngine:
     def __init__(self):
@@ -1025,7 +723,6 @@ def check_all_devices_status():
     finally:
         db.expire_all()
         db.close()
-        gc.collect(generation=2)
 
 def get_session_local_factory():
     return SessionLocal
@@ -1090,10 +787,6 @@ def init_report_engine():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    data_queue.initialize()
-    data_queue.start_worker()
-    print("[AsyncQueue] Data queue worker started")
-    
     scheduler.add_job(
         check_all_devices_status,
         'interval',
@@ -1111,20 +804,10 @@ async def lifespan(app: FastAPI):
         print(f"[ReportEngine] Failed to initialize: {e}")
         logger.error(f"[ReportEngine] Init failed: {e}", exc_info=True)
     
-    gc.collect()
-    gc.collect()
-    
     yield
-    
-    await data_queue.stop_worker()
-    print("[AsyncQueue] Data queue worker stopped")
     
     scheduler.shutdown()
     print("[Scheduler] Stopped")
-    
-    gc.collect()
-    gc.collect()
-    print(f"[GC] Final GC completed, unreachable objects: {gc.collect()}")
 
 app = FastAPI(title="IoT Management Platform", lifespan=lifespan)
 
@@ -1175,7 +858,6 @@ def get_db():
     finally:
         db.expire_all()
         ScopedSession.remove()
-        gc.collect(generation=1)
 
 HIGH_RISK_OPERATIONS = {
     OperationType.DEVICE_DELETE,
@@ -2534,7 +2216,6 @@ def send_device_command(
     }
     
     db.expire_all()
-    gc.collect(generation=1)
     
     return result
 
@@ -2603,7 +2284,6 @@ def get_pending_device_commands(
     }
     
     db.expire_all()
-    gc.collect(generation=1)
     
     return response
 
@@ -2679,7 +2359,6 @@ def acknowledge_command(
                 "is_idempotent": True
             }
             db.expire_all()
-            gc.collect(generation=1)
             return result
     
     result = {
@@ -2692,7 +2371,6 @@ def acknowledge_command(
     }
     
     db.expire_all()
-    gc.collect(generation=1)
     
     return result
 
@@ -2755,7 +2433,6 @@ def get_device_commands(
     }
     
     db.expire_all()
-    gc.collect(generation=1)
     
     return response
 
@@ -2838,10 +2515,11 @@ def get_websocket_status():
     }
 
 @app.post("/devices/data")
-async def report_device_data(
+def report_device_data(
     data_report: DeviceDataReport,
     x_signature: str = Header(None, alias="X-Signature"),
-    x_timestamp: str = Header(None, alias="X-Timestamp")
+    x_timestamp: str = Header(None, alias="X-Timestamp"),
+    db: Session = Depends(get_db)
 ):
     if not x_signature or not x_timestamp:
         raise HTTPException(
@@ -2849,15 +2527,17 @@ async def report_device_data(
             detail="Missing authentication headers: X-Signature and X-Timestamp are required"
         )
     
-    device_info = device_cache.get(data_report.device_id)
+    device = db.query(Device).filter(
+        Device.device_id == data_report.device_id
+    ).first()
     
-    if not device_info:
+    if not device:
         raise HTTPException(
             status_code=404,
             detail="Device not found. Please register the device first."
         )
     
-    is_valid, error_msg = verify_signature(data_report.device_id, x_timestamp, x_signature, device_info.secret_key)
+    is_valid, error_msg = verify_signature(data_report.device_id, x_timestamp, x_signature, device.secret_key)
     if not is_valid:
         raise HTTPException(
             status_code=401,
@@ -2868,50 +2548,41 @@ async def report_device_data(
     parsed_info = {}
     
     if data_report.raw_payload is not None and data_report.raw_payload != "":
-        db = ScopedSession()
+        protocol = get_device_protocol(data_report.device_id, db)
+        
+        if protocol is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"No active protocol configured for device {data_report.device_id}. "
+                       f"Please configure a DeviceProtocol for this device to use raw_payload."
+            )
+        
         try:
-            protocol = get_device_protocol(data_report.device_id, db)
+            parsed_data = parse_raw_payload(data_report.raw_payload, protocol)
             
-            if protocol is None:
-                db.expire_all()
-                ScopedSession.remove()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"No active protocol configured for device {data_report.device_id}. "
-                           f"Please configure a DeviceProtocol for this device to use raw_payload."
-                )
+            field_mappings = protocol.field_mappings or {}
+            mapped_data = apply_field_mappings(parsed_data, field_mappings)
             
-            try:
-                parsed_data = parse_raw_payload(data_report.raw_payload, protocol)
-                
-                field_mappings = protocol.field_mappings or {}
-                mapped_data = apply_field_mappings(parsed_data, field_mappings)
-                
-                transform_formulas = protocol.transform_formulas or {}
-                final_data = apply_transform_formulas(mapped_data, transform_formulas)
-                
-                payload = final_data
-                
-                parsed_info = {
-                    "raw_payload": data_report.raw_payload,
-                    "protocol_type": protocol.protocol_type.value,
-                    "parsed_data": parsed_data,
-                    "mapped_data": mapped_data,
-                    "final_payload": final_data
-                }
-                
-                logger.debug(f"[Protocol Adapter] Device {data_report.device_id} parsed raw_payload")
-                
-            except Exception as e:
-                db.expire_all()
-                ScopedSession.remove()
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Failed to parse raw_payload: {str(e)}"
-                )
-        finally:
-            db.expire_all()
-            ScopedSession.remove()
+            transform_formulas = protocol.transform_formulas or {}
+            final_data = apply_transform_formulas(mapped_data, transform_formulas)
+            
+            payload = final_data
+            
+            parsed_info = {
+                "raw_payload": data_report.raw_payload,
+                "protocol_type": protocol.protocol_type.value,
+                "parsed_data": parsed_data,
+                "mapped_data": mapped_data,
+                "final_payload": final_data
+            }
+            
+            logger.debug(f"[Protocol Adapter] Device {data_report.device_id} parsed raw_payload")
+            
+        except Exception as e:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Failed to parse raw_payload: {str(e)}"
+            )
     
     if payload is None:
         raise HTTPException(
@@ -2939,33 +2610,57 @@ async def report_device_data(
         full_payload["_raw_parsed"] = parsed_info
     
     data_id = str(uuid.uuid4())
+    history_id = str(uuid.uuid4())
     recorded_at = datetime.utcnow()
     
-    buffered_data = BufferedData(
+    device_data = DeviceData(
         id=data_id,
         device_id=data_report.device_id,
         payload=full_payload,
-        temperature=temperature,
-        humidity=humidity,
-        is_alert=is_alert,
         recorded_at=recorded_at
     )
+    db.add(device_data)
     
-    queue_size = await data_queue.put(buffered_data, data_report.device_id)
+    device_data_history = DeviceDataHistory(
+        id=history_id,
+        device_id=data_report.device_id,
+        payload=full_payload,
+        timestamp=recorded_at,
+        temperature=temperature,
+        humidity=humidity,
+        is_alert=is_alert
+    )
+    db.add(device_data_history)
     
-    gc.collect(generation=1)
+    old_status = device.status.value
+    device.last_heartbeat = recorded_at
+    device.last_seen = recorded_at
+    
+    if device.status != DeviceStatus.ONLINE:
+        device.status = DeviceStatus.ONLINE
+        new_status = device.status.value
+        try:
+            record_status_event(
+                db,
+                device.device_id,
+                "online",
+                old_status=old_status,
+                new_status=new_status,
+                reason="Device data reported",
+                details={"timestamp": recorded_at.isoformat()}
+            )
+        except Exception:
+            pass
+    
+    db.commit()
     
     response_data = {
-        "message": "Data accepted for processing",
+        "message": "Data saved successfully",
         "data_id": data_id,
-        "history_id": "batch_processing",
+        "history_id": history_id,
         "device_id": data_report.device_id,
         "payload": full_payload,
-        "recorded_at": recorded_at,
-        "queue_status": {
-            "current_size": queue_size,
-            "max_size": ASYNC_QUEUE_MAXSIZE
-        }
+        "recorded_at": recorded_at
     }
     
     if parsed_info:
@@ -3753,7 +3448,6 @@ def get_device_history(
     }
     
     db.expire_all()
-    gc.collect(generation=1)
     
     return result
 
@@ -3805,7 +3499,6 @@ def get_device_history_latest(
     }
     
     db.expire_all()
-    gc.collect(generation=1)
     
     return result
 
