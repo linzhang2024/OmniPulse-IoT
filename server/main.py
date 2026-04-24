@@ -79,8 +79,245 @@ MAX_MEMORY_EVENTS = 50
 WEBHOOK_URL = os.getenv("DEVICE_WEBHOOK_URL", "http://localhost:8080/api/device-status")
 WEBHOOK_TIMEOUT = 5
 
+MAX_DATA_QUEUE_SIZE = int(os.getenv("MAX_DATA_QUEUE_SIZE", "50000"))
+DATA_BATCH_SIZE = int(os.getenv("DATA_BATCH_SIZE", "500"))
+DATA_FLUSH_INTERVAL = float(os.getenv("DATA_FLUSH_INTERVAL", "1.0"))
+
 memory_event_queue = deque(maxlen=MAX_MEMORY_EVENTS)
 memory_event_lock = threading.Lock()
+
+data_queue = deque()
+data_queue_lock = threading.Lock()
+data_queue_maxsize = MAX_DATA_QUEUE_SIZE
+data_worker_running = False
+data_worker_task = None
+data_worker_shutdown_event = None
+
+data_stats = {
+    "total_enqueued": 0,
+    "total_flushed": 0,
+    "flush_count": 0,
+    "last_flush_time": None
+}
+data_stats_lock = threading.Lock()
+
+def get_data_queue_size() -> int:
+    with data_queue_lock:
+        return len(data_queue)
+
+def get_data_queue_stats() -> dict:
+    with data_stats_lock:
+        return dict(data_stats)
+
+def enqueue_data_item(item: dict) -> bool:
+    with data_queue_lock:
+        if len(data_queue) >= data_queue_maxsize:
+            logger.warning(f"[DataQueue] Queue full ({len(data_queue)}/{data_queue_maxsize}), dropping oldest item")
+            try:
+                data_queue.popleft()
+            except IndexError:
+                pass
+        
+        data_queue.append(item)
+        
+        with data_stats_lock:
+            data_stats["total_enqueued"] += 1
+        
+        return True
+
+def dequeue_data_batch(max_count: int) -> list:
+    with data_queue_lock:
+        batch = []
+        count = min(len(data_queue), max_count)
+        for _ in range(count):
+            try:
+                batch.append(data_queue.popleft())
+            except IndexError:
+                break
+        return batch
+
+INSERT_DEVICE_DATA_SQL = """
+INSERT INTO device_data (id, device_id, payload, recorded_at)
+VALUES (?, ?, ?, ?)
+"""
+
+INSERT_DEVICE_HISTORY_SQL = """
+INSERT INTO device_data_history (id, device_id, payload, timestamp, temperature, humidity, is_alert)
+VALUES (?, ?, ?, ?, ?, ?, ?)
+"""
+
+UPDATE_DEVICE_STATUS_SQL = """
+UPDATE devices 
+SET last_heartbeat = ?, last_seen = ?, status = ?, updated_at = CURRENT_TIMESTAMP
+WHERE device_id = ?
+"""
+
+def flush_data_batch(db_session=None):
+    batch = dequeue_data_batch(DATA_BATCH_SIZE)
+    if not batch:
+        return 0
+    
+    batch_size = len(batch)
+    
+    try:
+        if db_session is None:
+            db_session = SessionLocal()
+            should_close = True
+        else:
+            should_close = False
+        
+        device_data_params = []
+        history_params = []
+        device_updates = {}
+        
+        for item in batch:
+            device_data_params.append((
+                item["data_id"],
+                item["device_id"],
+                json.dumps(item["payload"], ensure_ascii=False),
+                item["recorded_at"]
+            ))
+            
+            history_params.append((
+                item["history_id"],
+                item["device_id"],
+                json.dumps(item["payload"], ensure_ascii=False),
+                item["recorded_at"],
+                item.get("temperature"),
+                item.get("humidity"),
+                item.get("is_alert", False)
+            ))
+            
+            device_id = item["device_id"]
+            if device_id not in device_updates:
+                device_updates[device_id] = {
+                    "last_seen": item["recorded_at"],
+                    "device_id": device_id
+                }
+        
+        connection = db_session.connection()
+        
+        if device_data_params:
+            connection.execute(text(INSERT_DEVICE_DATA_SQL), device_data_params)
+        
+        if history_params:
+            connection.execute(text(INSERT_DEVICE_HISTORY_SQL), history_params)
+        
+        for device_id, update_info in device_updates.items():
+            device = db_session.query(Device).filter(
+                Device.device_id == device_id
+            ).first()
+            
+            if device:
+                old_status = device.status.value
+                new_status = DeviceStatus.ONLINE.value
+                
+                device.last_heartbeat = update_info["last_seen"]
+                device.last_seen = update_info["last_seen"]
+                
+                if device.status != DeviceStatus.ONLINE:
+                    device.status = DeviceStatus.ONLINE
+                    
+                    try:
+                        record_status_event(
+                            db_session,
+                            device_id,
+                            "online",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason="Device data reported via queue",
+                            details={"timestamp": update_info["last_seen"].isoformat() if update_info["last_seen"] else None}
+                        )
+                    except Exception as e:
+                        logger.warning(f"[DataQueue] Failed to record status event: {e}")
+        
+        db_session.commit()
+        
+        with data_stats_lock:
+            data_stats["total_flushed"] += batch_size
+            data_stats["flush_count"] += 1
+            data_stats["last_flush_time"] = datetime.utcnow()
+        
+        if data_stats["flush_count"] % 20 == 0:
+            logger.info(
+                f"[DataQueue] Flushed {batch_size} records, "
+                f"total: {data_stats['total_flushed']}, "
+                f"queue: {get_data_queue_size()}"
+            )
+        
+        if should_close:
+            db_session.close()
+        
+        return batch_size
+        
+    except Exception as e:
+        logger.error(f"[DataQueue] Flush error: {e}")
+        try:
+            if db_session:
+                db_session.rollback()
+        except:
+            pass
+        return 0
+
+async def data_worker_loop():
+    global data_worker_running
+    logger.info("[DataQueue] Worker started")
+    
+    while data_worker_running:
+        try:
+            queue_size = get_data_queue_size()
+            
+            if queue_size > 0:
+                flush_data_batch()
+            
+            await asyncio.sleep(DATA_FLUSH_INTERVAL)
+            
+        except asyncio.CancelledError:
+            logger.info("[DataQueue] Worker cancelled")
+            break
+        except Exception as e:
+            logger.error(f"[DataQueue] Worker error: {e}")
+            await asyncio.sleep(1)
+    
+    remaining = get_data_queue_size()
+    if remaining > 0:
+        logger.warning(f"[DataQueue] Flushing remaining {remaining} items before shutdown...")
+        while get_data_queue_size() > 0:
+            flush_data_batch()
+    
+    logger.info("[DataQueue] Worker stopped")
+
+def start_data_worker():
+    global data_worker_running, data_worker_task, data_worker_shutdown_event
+    if data_worker_running:
+        return
+    
+    data_worker_running = True
+    data_worker_shutdown_event = asyncio.Event()
+    data_worker_task = asyncio.create_task(data_worker_loop())
+    logger.info("[DataQueue] Worker task started")
+
+async def stop_data_worker():
+    global data_worker_running, data_worker_task
+    if not data_worker_running:
+        return
+    
+    data_worker_running = False
+    
+    if data_worker_task and not data_worker_task.done():
+        data_worker_task.cancel()
+        try:
+            await data_worker_task
+        except asyncio.CancelledError:
+            pass
+    
+    remaining = get_data_queue_size()
+    if remaining > 0:
+        logger.warning(f"[DataQueue] Stopping with {remaining} items in queue, flushing...")
+        while get_data_queue_size() > 0:
+            flush_data_batch()
+    
+    logger.info("[DataQueue] Worker stopped completely")
 
 class NotificationEngine:
     def __init__(self):
@@ -787,6 +1024,9 @@ def init_report_engine():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    start_data_worker()
+    print(f"[DataQueue] Worker started - maxsize={MAX_DATA_QUEUE_SIZE}, batch={DATA_BATCH_SIZE}, interval={DATA_FLUSH_INTERVAL}s")
+    
     scheduler.add_job(
         check_all_devices_status,
         'interval',
@@ -805,6 +1045,9 @@ async def lifespan(app: FastAPI):
         logger.error(f"[ReportEngine] Init failed: {e}", exc_info=True)
     
     yield
+    
+    await stop_data_worker()
+    print("[DataQueue] Worker stopped")
     
     scheduler.shutdown()
     print("[Scheduler] Stopped")
@@ -2515,7 +2758,7 @@ def get_websocket_status():
     }
 
 @app.post("/devices/data")
-def report_device_data(
+async def report_device_data(
     data_report: DeviceDataReport,
     x_signature: str = Header(None, alias="X-Signature"),
     x_timestamp: str = Header(None, alias="X-Timestamp"),
@@ -2613,54 +2856,34 @@ def report_device_data(
     history_id = str(uuid.uuid4())
     recorded_at = datetime.utcnow()
     
-    device_data = DeviceData(
-        id=data_id,
-        device_id=data_report.device_id,
-        payload=full_payload,
-        recorded_at=recorded_at
-    )
-    db.add(device_data)
-    
-    device_data_history = DeviceDataHistory(
-        id=history_id,
-        device_id=data_report.device_id,
-        payload=full_payload,
-        timestamp=recorded_at,
-        temperature=temperature,
-        humidity=humidity,
-        is_alert=is_alert
-    )
-    db.add(device_data_history)
-    
-    old_status = device.status.value
-    device.last_heartbeat = recorded_at
-    device.last_seen = recorded_at
-    
-    if device.status != DeviceStatus.ONLINE:
-        device.status = DeviceStatus.ONLINE
-        new_status = device.status.value
-        try:
-            record_status_event(
-                db,
-                device.device_id,
-                "online",
-                old_status=old_status,
-                new_status=new_status,
-                reason="Device data reported",
-                details={"timestamp": recorded_at.isoformat()}
-            )
-        except Exception:
-            pass
-    
-    db.commit()
-    
-    response_data = {
-        "message": "Data saved successfully",
+    data_item = {
         "data_id": data_id,
         "history_id": history_id,
         "device_id": data_report.device_id,
         "payload": full_payload,
+        "temperature": temperature,
+        "humidity": humidity,
+        "is_alert": is_alert,
         "recorded_at": recorded_at
+    }
+    
+    enqueue_data_item(data_item)
+    
+    queue_size = get_data_queue_size()
+    
+    response_data = {
+        "message": "Data accepted for processing",
+        "data_id": data_id,
+        "history_id": history_id,
+        "device_id": data_report.device_id,
+        "payload": full_payload,
+        "recorded_at": recorded_at,
+        "queue_status": {
+            "current_size": queue_size,
+            "max_size": MAX_DATA_QUEUE_SIZE,
+            "batch_size": DATA_BATCH_SIZE,
+            "flush_interval": DATA_FLUSH_INTERVAL
+        }
     }
     
     if parsed_info:
