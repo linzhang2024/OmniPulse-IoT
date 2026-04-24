@@ -83,31 +83,18 @@ class NotificationEngine:
         self._lock = threading.Lock()
     
     def _print_alert_banner(self, device_id: str, event_type: str, details: dict):
-        banner = "\n"
-        banner += "╔" + "═" * 78 + "╗\n"
-        banner += "║" + " " * 78 + "║\n"
-        
         if event_type == "offline":
-            banner += "║  ⚠️  DEVICE OFFLINE ALERT  ⚠️" + " " * 42 + "║\n"
+            logger.warning(f"[DEVICE ALERT] Device OFFLINE: {device_id}")
         elif event_type == "pending_offline":
-            banner += "║  ⚠️  DEVICE PENDING OFFLINE WARNING  ⚠️" + " " * 33 + "║\n"
+            logger.warning(f"[DEVICE WARNING] Device PENDING OFFLINE: {device_id}")
         elif event_type == "online":
-            banner += "║  ✅  DEVICE ONLINE  ✅" + " " * 47 + "║\n"
-        
-        banner += "║" + " " * 78 + "║\n"
-        banner += f"║  Device ID: {device_id:<63}║\n"
-        banner += "║" + "-" * 78 + "║\n"
+            logger.info(f"[DEVICE STATUS] Device ONLINE: {device_id}")
+        else:
+            logger.info(f"[DEVICE EVENT] {event_type}: {device_id}")
         
         for key, value in details.items():
-            value_str = str(value)
-            if len(value_str) > 45:
-                value_str = value_str[:42] + "..."
-            banner += f"║  {key}: {value_str:<55 - len(key)}║\n"
-        
-        banner += "║" + " " * 78 + "║\n"
-        banner += "╚" + "═" * 78 + "╝\n"
-        
-        print(banner)
+            if value is not None:
+                logger.info(f"    {key}: {value}")
     
     def _call_webhook(self, device_id: str, event_type: str, details: dict):
         if not self.enabled:

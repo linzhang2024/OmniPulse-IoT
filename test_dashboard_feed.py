@@ -150,7 +150,7 @@ def main():
     total_steps = duration // interval
     
     print("=" * 70)
-    print("📊 实时看板温度数据上报测试")
+    print("[数据] 实时看板温度数据上报测试")
     print("=" * 70)
     print(f"\n配置参数:")
     print(f"  - 测试持续时间: {duration} 秒")
@@ -175,12 +175,12 @@ def main():
                 print(f"\n正在注册设备: {device_id}...")
                 register_result = register_device(client, device_id, model)
                 secret_key = register_result["secret_key"]
-                print(f"✅ 设备注册成功!")
+                print(f"[OK] 设备注册成功!")
                 print(f"   设备ID: {device_id}")
                 print(f"   设备型号: {model}")
                 print(f"   密钥: {secret_key[:8]}...")
             except Exception as e:
-                print(f"❌ 设备注册失败: {e}")
+                print(f"[错误] 设备注册失败: {e}")
                 return 1
         
         print(f"\n{'='*70}")
@@ -196,9 +196,9 @@ def main():
                 db.delete(record)
             db.commit()
             if existing:
-                print(f"✅ 已清理 {len(existing)} 条旧记录")
+                print(f"[OK] 已清理 {len(existing)} 条旧记录")
             else:
-                print(f"ℹ️ 没有旧记录需要清理")
+                print(f"[信息] 没有旧记录需要清理")
         finally:
             db.close()
         
@@ -225,14 +225,14 @@ def main():
                     "humidity": humidity
                 }
                 
-                status_icon = "✅"
+                status_icon = "[OK]"
                 error_msg = ""
                 
                 try:
                     result = report_device_data(client, device_id, secret_key, payload)
                     actual_intervals.append(time.time() - cycle_start)
                 except Exception as e:
-                    status_icon = "❌"
+                    status_icon = "[错误]"
                     error_msg = str(e)[:50]
                     errors.append({"step": step, "error": str(e)})
                 
@@ -254,13 +254,13 @@ def main():
         print("-" * 65)
         print(f"\n上报完成! 总耗时: {elapsed_total:.2f} 秒")
         if errors:
-            print(f"⚠️  上报错误: {len(errors)} 次")
+            print(f"[警告]  上报错误: {len(errors)} 次")
         else:
-            print(f"✅ 全部上报成功!")
+            print(f"[OK] 全部上报成功!")
     
     else:
         if not args.device_id:
-            print("❌ --verify-only 模式需要指定 --device-id 参数")
+            print("[错误] --verify-only 模式需要指定 --device-id 参数")
             return 1
         print(f"\n{'='*70}")
         print("验证模式: 检查现有设备数据")
@@ -282,15 +282,15 @@ def main():
                 temp_str = f"{record.temperature:.2f}" if record.temperature else "N/A"
                 hum_str = f"{record.humidity:.1f}" if record.humidity else "N/A"
                 ts_str = record.timestamp.strftime("%Y-%m-%d %H:%M:%S") if record.timestamp else "N/A"
-                alert_flag = " ⚠️" if record.is_alert else ""
+                alert_flag = " [警告]" if record.is_alert else ""
                 print(f"  [{i+1}] {ts_str} | 温度: {temp_str}°C | 湿度: {hum_str}%{alert_flag}")
         
         print(f"\n时区戳验证:")
         tz_result = verify_timezone(db, device_id)
         if tz_result["valid"]:
-            print(f"  ✅ 所有 {tz_result['valid_count']} 条记录的时间戳有效")
+            print(f"  [OK] 所有 {tz_result['valid_count']} 条记录的时间戳有效")
         else:
-            print(f"  ⚠️  发现问题:")
+            print(f"  [警告]  发现问题:")
             for issue in tz_result["issues"][:10]:
                 print(f"     - {issue}")
         
@@ -312,15 +312,15 @@ def main():
                 
                 range_check = abs((max_temp - min_temp) - expected_range) < 5
                 if range_check:
-                    print(f"  ✅ 温度波动符合预期 (预期范围: ±{amplitude}°C)")
+                    print(f"  [OK] 温度波动符合预期 (预期范围: ±{amplitude}°C)")
                 else:
-                    print(f"  ⚠️  温度波动可能不符合预期 (预期范围: ±{amplitude}°C)")
+                    print(f"  [警告]  温度波动可能不符合预期 (预期范围: ±{amplitude}°C)")
         
         alert_count = sum(1 for r in records if r.is_alert)
         if alert_count > 0:
-            print(f"\n⚠️  告警记录: {alert_count} 条")
+            print(f"\n[警告]  告警记录: {alert_count} 条")
         else:
-            print(f"\n✅ 无告警记录")
+            print(f"\n[OK] 无告警记录")
     
     finally:
         db.close()
@@ -346,19 +346,19 @@ def main():
                         ts_str = point.get('timestamp', 'N/A')
                         if ts_str and 'T' in ts_str:
                             ts_str = ts_str.replace('T', ' ')[:19]
-                        alert_flag = " ⚠️" if point.get('is_alert') else ""
+                        alert_flag = " [警告]" if point.get('is_alert') else ""
                         print(f"  [{i+1}] {ts_str} | 温度: {temp_str}°C{alert_flag}")
                 
-                print(f"\n✅ 实时数据 API 正常工作!")
-                print(f"\n💡 前端看板提示:")
+                print(f"\n[OK] 实时数据 API 正常工作!")
+                print(f"\n[提示] 前端看板提示:")
                 print(f"   1. 请确保服务器正在运行: python server_no_reload.py")
                 print(f"   2. 打开浏览器访问: {BASE_URL}")
                 print(f"   3. 找到设备 '{device_id[:8]}...'")
                 print(f"   4. 观察实时温度曲线是否呈现正弦波波动")
             else:
-                print(f"⚠️  API 请求失败")
+                print(f"[警告]  API 请求失败")
         except Exception as e:
-            print(f"⚠️  API 验证出错: {e}")
+            print(f"[警告]  API 验证出错: {e}")
     
     if not args.no_cleanup and not args.verify_only:
         print(f"\n{'='*70}")
@@ -376,11 +376,11 @@ def main():
             ).delete(synchronize_session=False)
             
             db.commit()
-            print(f"✅ 已清理 {history_count} 条历史记录")
-            print(f"\nℹ️  提示: 设备 '{device_id}' 已保留，便于查看前端效果")
+            print(f"[OK] 已清理 {history_count} 条历史记录")
+            print(f"\n[信息]  提示: 设备 '{device_id}' 已保留，便于查看前端效果")
             print(f"   如需删除设备，请手动执行: DELETE FROM devices WHERE device_id = '{device_id}'")
         except Exception as e:
-            print(f"⚠️  清理失败: {e}")
+            print(f"[警告]  清理失败: {e}")
         finally:
             db.close()
     
