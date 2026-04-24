@@ -1,108 +1,108 @@
-2026-04-24 09:41:40,182 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:40,182 - CommandLifecycleTest - INFO - Command Lifecycle Test Suite
-2026-04-24 09:41:40,182 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:40,182 - CommandLifecycleTest - INFO - Test Parameters:
-2026-04-24 09:41:40,182 - CommandLifecycleTest - INFO -   - Default TTL: 30 seconds
-2026-04-24 09:41:40,182 - CommandLifecycleTest - INFO -   - Short TTL: 5 seconds (for expiration tests)
-2026-04-24 09:41:40,182 - CommandLifecycleTest - INFO -   - Test Device: TEST_CMD_1776994900
-2026-04-24 09:41:40,183 - CommandLifecycleTest - INFO - 
-2026-04-24 09:41:40,183 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:40,183 - CommandLifecycleTest - INFO - TEST CASE 1: Command Creation
-2026-04-24 09:41:40,183 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:40,183 - CommandLifecycleTest - INFO - Creating test device: TEST_CMD_1776994900
-2026-04-24 09:41:40,216 - CommandLifecycleTest - INFO - Test device created: TEST_CMD_1776994900, status: offline
-2026-04-24 09:41:40,227 - CommandLifecycleTest - INFO - [CreateCommand] Created command 97288692-8164-4b59-a9ed-61f88d19d63d: SET_TEMP=25, TTL=30s
-2026-04-24 09:41:40,227 - CommandLifecycleTest - INFO - [PASS] Command created with all required fields
-2026-04-24 09:41:40,228 - CommandLifecycleTest - INFO - [PASS] Command retrieved from database
-2026-04-24 09:41:40,229 - CommandLifecycleTest - INFO - [PASS] Device commands list contains the command
-2026-04-24 09:41:40,229 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:09,242 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:09,242 - CommandLifecycleTest - INFO - Command Lifecycle Test Suite
+2026-04-24 10:27:09,242 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:09,242 - CommandLifecycleTest - INFO - Test Parameters:
+2026-04-24 10:27:09,242 - CommandLifecycleTest - INFO -   - Default TTL: 30 seconds
+2026-04-24 10:27:09,242 - CommandLifecycleTest - INFO -   - Short TTL: 5 seconds (for expiration tests)
+2026-04-24 10:27:09,243 - CommandLifecycleTest - INFO -   - Test Device: TEST_CMD_1776997629
+2026-04-24 10:27:09,243 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:09,243 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:09,243 - CommandLifecycleTest - INFO - TEST CASE 1: Command Creation
+2026-04-24 10:27:09,243 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:09,243 - CommandLifecycleTest - INFO - Creating test device: TEST_CMD_1776997629
+2026-04-24 10:27:09,268 - CommandLifecycleTest - INFO - Test device created: TEST_CMD_1776997629, status: offline
+2026-04-24 10:27:09,279 - CommandLifecycleTest - INFO - [CreateCommand] Created command fd99c9f3-fca8-4324-ba08-a69dc54e1a29: SET_TEMP=25, TTL=30s
+2026-04-24 10:27:09,279 - CommandLifecycleTest - INFO - [PASS] Command created with all required fields
+2026-04-24 10:27:09,280 - CommandLifecycleTest - INFO - [PASS] Command retrieved from database
+2026-04-24 10:27:09,281 - CommandLifecycleTest - INFO - [PASS] Device commands list contains the command
+2026-04-24 10:27:09,282 - CommandLifecycleTest - INFO - 
 [TEST CASE 1: PASS] Command creation works correctly!
-2026-04-24 09:41:40,229 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:09,282 - CommandLifecycleTest - INFO - 
 ============================================================
-2026-04-24 09:41:40,230 - CommandLifecycleTest - INFO - TEST CASE 2: Command Acknowledgment (Ack)
-2026-04-24 09:41:40,230 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:40,230 - CommandLifecycleTest - INFO - [PASS] Command is in PENDING status
-2026-04-24 09:41:40,238 - CommandLifecycleTest - INFO - [UpdateStatus] Command 97288692-8164-4b59-a9ed-61f88d19d63d -> delivered
-2026-04-24 09:41:40,238 - CommandLifecycleTest - INFO - [PASS] Command marked as DELIVERED
-2026-04-24 09:41:40,247 - CommandLifecycleTest - INFO - [UpdateStatus] Command 97288692-8164-4b59-a9ed-61f88d19d63d -> executed
-2026-04-24 09:41:40,247 - CommandLifecycleTest - INFO - [PASS] Command marked as EXECUTED with result data
-2026-04-24 09:41:40,248 - CommandLifecycleTest - INFO - [PASS] Command status persisted in database
-2026-04-24 09:41:40,248 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:09,282 - CommandLifecycleTest - INFO - TEST CASE 2: Command Acknowledgment (Ack)
+2026-04-24 10:27:09,283 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:09,283 - CommandLifecycleTest - INFO - [PASS] Command is in PENDING status
+2026-04-24 10:27:09,291 - CommandLifecycleTest - INFO - [UpdateStatus] Command fd99c9f3-fca8-4324-ba08-a69dc54e1a29 -> delivered
+2026-04-24 10:27:09,291 - CommandLifecycleTest - INFO - [PASS] Command marked as DELIVERED
+2026-04-24 10:27:09,301 - CommandLifecycleTest - INFO - [UpdateStatus] Command fd99c9f3-fca8-4324-ba08-a69dc54e1a29 -> executed
+2026-04-24 10:27:09,301 - CommandLifecycleTest - INFO - [PASS] Command marked as EXECUTED with result data
+2026-04-24 10:27:09,301 - CommandLifecycleTest - INFO - [PASS] Command status persisted in database
+2026-04-24 10:27:09,301 - CommandLifecycleTest - INFO - 
 [TEST CASE 2: PASS] Command acknowledgment works correctly!
-2026-04-24 09:41:40,248 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:09,301 - CommandLifecycleTest - INFO - 
 ============================================================
-2026-04-24 09:41:40,248 - CommandLifecycleTest - INFO - TEST CASE 3: Command Expiration
-2026-04-24 09:41:40,248 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:40,255 - CommandLifecycleTest - INFO - [CreateCommand] Created command fc1bd004-b8b4-4546-9154-cb713b44b59d: SET_MODE=eco, TTL=5s
-2026-04-24 09:41:40,255 - CommandLifecycleTest - INFO - [PASS] Created command with short TTL (5s)
-2026-04-24 09:41:40,263 - CommandLifecycleTest - INFO - [UpdateStatus] Command fc1bd004-b8b4-4546-9154-cb713b44b59d -> delivered
-2026-04-24 09:41:40,263 - CommandLifecycleTest - INFO - [PASS] Command marked as DELIVERED
-2026-04-24 09:41:40,263 - CommandLifecycleTest - INFO - [Wait] Waiting 7 seconds for command to expire...
-2026-04-24 09:41:47,273 - CommandLifecycleTest - INFO - [ExpireCheck] Expired 1 overdue commands
-2026-04-24 09:41:47,273 - CommandLifecycleTest - INFO - [ExpireCheck] Found 1 expired commands
-2026-04-24 09:41:47,274 - CommandLifecycleTest - INFO - [PASS] Command automatically marked as EXPIRED
-2026-04-24 09:41:47,275 - CommandLifecycleTest - INFO - [PASS] Expired command found in status filter
-2026-04-24 09:41:47,275 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:09,301 - CommandLifecycleTest - INFO - TEST CASE 3: Command Expiration
+2026-04-24 10:27:09,301 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:09,310 - CommandLifecycleTest - INFO - [CreateCommand] Created command df70cc87-a96e-45fe-931e-adba57707b3d: SET_MODE=eco, TTL=5s
+2026-04-24 10:27:09,310 - CommandLifecycleTest - INFO - [PASS] Created command with short TTL (5s)
+2026-04-24 10:27:09,317 - CommandLifecycleTest - INFO - [UpdateStatus] Command df70cc87-a96e-45fe-931e-adba57707b3d -> delivered
+2026-04-24 10:27:09,317 - CommandLifecycleTest - INFO - [PASS] Command marked as DELIVERED
+2026-04-24 10:27:09,318 - CommandLifecycleTest - INFO - [Wait] Waiting 7 seconds for command to expire...
+2026-04-24 10:27:16,326 - CommandLifecycleTest - INFO - [ExpireCheck] Expired 1 overdue commands
+2026-04-24 10:27:16,326 - CommandLifecycleTest - INFO - [ExpireCheck] Found 1 expired commands
+2026-04-24 10:27:16,327 - CommandLifecycleTest - INFO - [PASS] Command automatically marked as EXPIRED
+2026-04-24 10:27:16,328 - CommandLifecycleTest - INFO - [PASS] Expired command found in status filter
+2026-04-24 10:27:16,328 - CommandLifecycleTest - INFO - 
 [TEST CASE 3: PASS] Command expiration works correctly!
-2026-04-24 09:41:47,275 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:16,328 - CommandLifecycleTest - INFO - 
 ============================================================
-2026-04-24 09:41:47,275 - CommandLifecycleTest - INFO - TEST CASE 4: Full Command Lifecycle Simulation
-2026-04-24 09:41:47,275 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:47,275 - CommandLifecycleTest - INFO - [Step 1] User creates command via API...
-2026-04-24 09:41:47,284 - CommandLifecycleTest - INFO - [CreateCommand] Created command d30d8fa3-42fd-4365-b086-e8f67fcb29e3: SET_TEMP=22, TTL=30s
-2026-04-24 09:41:47,284 - CommandLifecycleTest - INFO - [Step 1: PASS] Command created: d30d8fa3-42fd-4365-b086-e8f67fcb29e3
-2026-04-24 09:41:47,284 - CommandLifecycleTest - INFO - [Step 2] Device queries pending commands...
-2026-04-24 09:41:47,294 - CommandLifecycleTest - INFO - [Step 2: PASS] Command delivered to device
-2026-04-24 09:41:47,294 - CommandLifecycleTest - INFO - [Step 3] Device executes command...
-2026-04-24 09:41:48,302 - CommandLifecycleTest - INFO - [UpdateStatus] Command d30d8fa3-42fd-4365-b086-e8f67fcb29e3 -> executed
-2026-04-24 09:41:48,302 - CommandLifecycleTest - INFO - [Step 3: PASS] Command executed successfully
-2026-04-24 09:41:48,302 - CommandLifecycleTest - INFO - [Step 4] Verify final state...
-2026-04-24 09:41:48,303 - CommandLifecycleTest - INFO -   Created: 2026-04-24 01:41:47.275326
-2026-04-24 09:41:48,303 - CommandLifecycleTest - INFO -   Delivered: 2026-04-24 01:41:47.284701
-2026-04-24 09:41:48,303 - CommandLifecycleTest - INFO -   Executed: 2026-04-24 01:41:48.294878
-2026-04-24 09:41:48,303 - CommandLifecycleTest - INFO - [Step 4: PASS] Timeline is correct
-2026-04-24 09:41:48,303 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:16,329 - CommandLifecycleTest - INFO - TEST CASE 4: Full Command Lifecycle Simulation
+2026-04-24 10:27:16,329 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:16,329 - CommandLifecycleTest - INFO - [Step 1] User creates command via API...
+2026-04-24 10:27:16,338 - CommandLifecycleTest - INFO - [CreateCommand] Created command 5983fdbb-fe9d-4cae-ba39-ff57c24b8a7c: SET_TEMP=22, TTL=30s
+2026-04-24 10:27:16,340 - CommandLifecycleTest - INFO - [Step 1: PASS] Command created: 5983fdbb-fe9d-4cae-ba39-ff57c24b8a7c
+2026-04-24 10:27:16,340 - CommandLifecycleTest - INFO - [Step 2] Device queries pending commands...
+2026-04-24 10:27:16,347 - CommandLifecycleTest - INFO - [Step 2: PASS] Command delivered to device
+2026-04-24 10:27:16,348 - CommandLifecycleTest - INFO - [Step 3] Device executes command...
+2026-04-24 10:27:17,357 - CommandLifecycleTest - INFO - [UpdateStatus] Command 5983fdbb-fe9d-4cae-ba39-ff57c24b8a7c -> executed
+2026-04-24 10:27:17,357 - CommandLifecycleTest - INFO - [Step 3: PASS] Command executed successfully
+2026-04-24 10:27:17,357 - CommandLifecycleTest - INFO - [Step 4] Verify final state...
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO -   Created: 2026-04-24 02:27:16.329975
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO -   Delivered: 2026-04-24 02:27:16.340003
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO -   Executed: 2026-04-24 02:27:17.349408
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO - [Step 4: PASS] Timeline is correct
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO - 
 [TEST CASE 4: PASS] Full command lifecycle works correctly!
-2026-04-24 09:41:48,303 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO - 
 ============================================================
-2026-04-24 09:41:48,303 - CommandLifecycleTest - INFO - TEST CASE 5: Expired Command Cannot Be Acknowledged
-2026-04-24 09:41:48,304 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:48,312 - CommandLifecycleTest - INFO - [CreateCommand] Created command 9895baa6-1e5a-43f6-9a8c-f4147bcc683f: SET_POWER=off, TTL=5s
-2026-04-24 09:41:48,312 - CommandLifecycleTest - INFO - [Wait] Waiting 7 seconds for command to expire...
-2026-04-24 09:41:55,321 - CommandLifecycleTest - INFO - [ExpireCheck] Expired 1 overdue commands
-2026-04-24 09:41:55,321 - CommandLifecycleTest - INFO - [PASS] Command is EXPIRED
-2026-04-24 09:41:55,330 - CommandLifecycleTest - INFO - [UpdateStatus] Command 9895baa6-1e5a-43f6-9a8c-f4147bcc683f -> executed
-2026-04-24 09:41:55,330 - CommandLifecycleTest - WARNING - [TEST] Note: Current implementation allows status change (would be prevented in API layer)
-2026-04-24 09:41:55,330 - CommandLifecycleTest - INFO - Final status: executed
-2026-04-24 09:41:55,331 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO - TEST CASE 5: Expired Command Cannot Be Acknowledged
+2026-04-24 10:27:17,358 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:17,366 - CommandLifecycleTest - INFO - [CreateCommand] Created command 26b746bd-7d33-4515-9929-fc25b15c491e: SET_POWER=off, TTL=5s
+2026-04-24 10:27:17,366 - CommandLifecycleTest - INFO - [Wait] Waiting 7 seconds for command to expire...
+2026-04-24 10:27:24,376 - CommandLifecycleTest - INFO - [ExpireCheck] Expired 1 overdue commands
+2026-04-24 10:27:24,378 - CommandLifecycleTest - INFO - [PASS] Command is EXPIRED
+2026-04-24 10:27:24,388 - CommandLifecycleTest - INFO - [UpdateStatus] Command 26b746bd-7d33-4515-9929-fc25b15c491e -> executed
+2026-04-24 10:27:24,388 - CommandLifecycleTest - WARNING - [TEST] Note: Current implementation allows status change (would be prevented in API layer)
+2026-04-24 10:27:24,390 - CommandLifecycleTest - INFO - Final status: executed
+2026-04-24 10:27:24,390 - CommandLifecycleTest - INFO - 
 [TEST CASE 5: PASS] Expired command behavior tested!
-2026-04-24 09:41:55,331 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:24,390 - CommandLifecycleTest - INFO - 
 ============================================================
-2026-04-24 09:41:55,331 - CommandLifecycleTest - INFO - TEST CASE 6: Command Status Enum Verification
-2026-04-24 09:41:55,331 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:55,331 - CommandLifecycleTest - INFO - [PASS] CommandStatus enum has all required values: ['pending', 'delivered', 'executed', 'failed', 'expired']
-2026-04-24 09:41:55,338 - CommandLifecycleTest - INFO - [CreateCommand] Created command e8b8defc-c65c-4314-9a20-4c34ade9b5cb: TEST_STATUS=flow, TTL=60s
-2026-04-24 09:41:55,347 - CommandLifecycleTest - INFO - [UpdateStatus] Command e8b8defc-c65c-4314-9a20-4c34ade9b5cb -> pending
-2026-04-24 09:41:55,347 - CommandLifecycleTest - INFO - [PASS] Step 1: pending
-2026-04-24 09:41:55,355 - CommandLifecycleTest - INFO - [UpdateStatus] Command e8b8defc-c65c-4314-9a20-4c34ade9b5cb -> delivered
-2026-04-24 09:41:55,355 - CommandLifecycleTest - INFO - [PASS] Step 2: delivered
-2026-04-24 09:41:55,364 - CommandLifecycleTest - INFO - [UpdateStatus] Command e8b8defc-c65c-4314-9a20-4c34ade9b5cb -> executed
-2026-04-24 09:41:55,364 - CommandLifecycleTest - INFO - [PASS] Step 3: executed
-2026-04-24 09:41:55,364 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:24,390 - CommandLifecycleTest - INFO - TEST CASE 6: Command Status Enum Verification
+2026-04-24 10:27:24,390 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:24,390 - CommandLifecycleTest - INFO - [PASS] CommandStatus enum has all required values: ['pending', 'delivered', 'executed', 'failed', 'expired']
+2026-04-24 10:27:24,398 - CommandLifecycleTest - INFO - [CreateCommand] Created command bd996bc4-da54-40cc-b82f-e0c96486710a: TEST_STATUS=flow, TTL=60s
+2026-04-24 10:27:24,406 - CommandLifecycleTest - INFO - [UpdateStatus] Command bd996bc4-da54-40cc-b82f-e0c96486710a -> pending
+2026-04-24 10:27:24,406 - CommandLifecycleTest - INFO - [PASS] Step 1: pending
+2026-04-24 10:27:24,417 - CommandLifecycleTest - INFO - [UpdateStatus] Command bd996bc4-da54-40cc-b82f-e0c96486710a -> delivered
+2026-04-24 10:27:24,417 - CommandLifecycleTest - INFO - [PASS] Step 2: delivered
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO - [UpdateStatus] Command bd996bc4-da54-40cc-b82f-e0c96486710a -> executed
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO - [PASS] Step 3: executed
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO - 
 [TEST CASE 6: PASS] Command status enum works correctly!
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO - 
 ============================================================
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - TEST SUMMARY
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - ============================================================
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO -   PASS: Test Case 1: Command Creation
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO -   PASS: Test Case 2: Command Acknowledgment
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO -   PASS: Test Case 3: Command Expiration
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO -   PASS: Test Case 4: Full Command Lifecycle
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO -   PASS: Test Case 5: Expired Command Behavior
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO -   PASS: Test Case 6: Status Enum Verification
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - 
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - Total: 6 tests
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - Passed: 6
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - Failed: 0
-2026-04-24 09:41:55,365 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO - TEST SUMMARY
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO - ============================================================
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO -   PASS: Test Case 1: Command Creation
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO -   PASS: Test Case 2: Command Acknowledgment
+2026-04-24 10:27:24,426 - CommandLifecycleTest - INFO -   PASS: Test Case 3: Command Expiration
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO -   PASS: Test Case 4: Full Command Lifecycle
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO -   PASS: Test Case 5: Expired Command Behavior
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO -   PASS: Test Case 6: Status Enum Verification
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO - 
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO - Total: 6 tests
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO - Passed: 6
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO - Failed: 0
+2026-04-24 10:27:24,427 - CommandLifecycleTest - INFO - 
 [ALL TESTS PASSED] Command lifecycle mechanism is working correctly!

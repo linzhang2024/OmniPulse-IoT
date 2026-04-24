@@ -3,3 +3,12 @@ uvicorn[standard]==0.27.0
 sqlalchemy==2.0.25
 pydantic==2.5.3
 apscheduler==3.10.4
+
+gunicorn==21.2.0
+
+httpx==0.26.0
+websockets==12.0
+
+psutil==5.9.7
+
+python-multipart==0.0.6
