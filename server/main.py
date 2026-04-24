@@ -276,7 +276,7 @@ async def data_worker_loop():
             logger.info("[DataQueue] Worker cancelled")
             break
         except Exception as e:
-            logger.error(f"[DataQueue] Worker error: {e}")
+            logger.error(f"[DataQueue] Worker error: {e}", exc_info=True)
             await asyncio.sleep(1)
     
     remaining = get_data_queue_size()
@@ -287,7 +287,22 @@ async def data_worker_loop():
     
     logger.info("[DataQueue] Worker stopped")
 
-def start_data_worker():
+def start_data_worker_sync():
+    global data_worker_running, data_worker_task, data_worker_shutdown_event
+    if data_worker_running:
+        return
+    
+    data_worker_running = True
+    
+    try:
+        loop = asyncio.get_running_loop()
+        data_worker_task = loop.create_task(data_worker_loop())
+        logger.info("[DataQueue] Worker task started (sync context)")
+    except RuntimeError:
+        logger.warning("[DataQueue] No running event loop, will start later")
+        pass
+
+async def start_data_worker_async():
     global data_worker_running, data_worker_task, data_worker_shutdown_event
     if data_worker_running:
         return
@@ -295,7 +310,7 @@ def start_data_worker():
     data_worker_running = True
     data_worker_shutdown_event = asyncio.Event()
     data_worker_task = asyncio.create_task(data_worker_loop())
-    logger.info("[DataQueue] Worker task started")
+    logger.info("[DataQueue] Worker task started (async context)")
 
 async def stop_data_worker():
     global data_worker_running, data_worker_task
@@ -1024,7 +1039,7 @@ def init_report_engine():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    start_data_worker()
+    await start_data_worker_async()
     print(f"[DataQueue] Worker started - maxsize={MAX_DATA_QUEUE_SIZE}, batch={DATA_BATCH_SIZE}, interval={DATA_FLUSH_INTERVAL}s")
     
     scheduler.add_job(
@@ -1053,6 +1068,42 @@ async def lifespan(app: FastAPI):
     print("[Scheduler] Stopped")
 
 app = FastAPI(title="IoT Management Platform", lifespan=lifespan)
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    from fastapi.responses import JSONResponse
+    
+    error_detail = {
+        "error": str(exc),
+        "type": type(exc).__name__,
+        "traceback": traceback.format_exc().splitlines(),
+        "path": str(request.url) if request else None
+    }
+    
+    logger.error(f"[Global Exception] {exc}", exc_info=True)
+    
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": "Internal Server Error",
+            "error": error_detail
+        }
+    )
+
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    from fastapi.responses import JSONResponse
+    
+    logger.warning(f"[HTTP Exception] {exc.status_code}: {exc.detail}")
+    
+    return JSONResponse(
+        status_code=exc.status_code,
+        content={
+            "detail": exc.detail,
+            "status_code": exc.status_code
+        }
+    )
 
 app.add_middleware(
     CORSMiddleware,
