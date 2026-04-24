@@ -253,6 +253,8 @@ class DeviceCommand(Base):
     id = Column(String(36), primary_key=True, index=True)
     device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
     
+    client_msg_id = Column(String(128), nullable=True, index=True, unique=True)
+    
     command_type = Column(String(64), nullable=False)
     command_value = Column(String(255), nullable=True)
     

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, Header, Query
+from fastapi import FastAPI, Depends, HTTPException, Header, Query, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -9,6 +9,7 @@ from datetime import datetime, timedelta
 from contextlib import asynccontextmanager
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from collections import deque
+from typing import Dict, Set, Optional, Any
 import os
 import uuid
 import hashlib
@@ -1519,11 +1520,91 @@ class DeviceCommandCreate(BaseModel):
     value: str = None
     ttl_seconds: int = COMMAND_TTL_SECONDS
     reason: str = None
+    client_msg_id: str = None
 
 class CommandAck(BaseModel):
     status: str = "executed"
     result: dict = None
     error_message: str = None
+    client_msg_id: str = None
+
+class WebSocketConnectionManager:
+    def __init__(self):
+        self.active_connections: Dict[str, Set[WebSocket]] = {}
+        self._lock: threading.Lock = threading.Lock()
+        self._frontend_connections: Set[WebSocket] = set()
+    
+    async def connect(self, websocket: WebSocket, device_id: str = None):
+        await websocket.accept()
+        with self._lock:
+            if device_id:
+                if device_id not in self.active_connections:
+                    self.active_connections[device_id] = set()
+                self.active_connections[device_id].add(websocket)
+                logger.info(f"[WebSocket] Device {device_id} connected")
+            else:
+                self._frontend_connections.add(websocket)
+                logger.info(f"[WebSocket] Frontend client connected")
+    
+    def disconnect(self, websocket: WebSocket, device_id: str = None):
+        with self._lock:
+            if device_id and device_id in self.active_connections:
+                self.active_connections[device_id].discard(websocket)
+                if not self.active_connections[device_id]:
+                    del self.active_connections[device_id]
+                logger.info(f"[WebSocket] Device {device_id} disconnected")
+            else:
+                self._frontend_connections.discard(websocket)
+                logger.info(f"[WebSocket] Frontend client disconnected")
+    
+    async def send_to_device(self, device_id: str, message: Dict[str, Any]):
+        if device_id not in self.active_connections:
+            return False
+        
+        connections = list(self.active_connections[device_id])
+        for websocket in connections:
+            try:
+                await websocket.send_json(message)
+                logger.info(f"[WebSocket] Sent message to device {device_id}: {message}")
+            except Exception as e:
+                logger.error(f"[WebSocket] Failed to send to device {device_id}: {e}")
+                self.disconnect(websocket, device_id)
+        
+        return len(connections) > 0
+    
+    async def send_to_frontend(self, message: Dict[str, Any]):
+        connections = list(self._frontend_connections)
+        for websocket in connections:
+            try:
+                await websocket.send_json(message)
+            except Exception as e:
+                logger.error(f"[WebSocket] Failed to send to frontend: {e}")
+                self.disconnect(websocket)
+        
+        return len(connections) > 0
+    
+    async def broadcast_command(self, device_id: str, command: DeviceCommand):
+        message = {
+            "type": "new_command",
+            "device_id": device_id,
+            "command_id": command.id,
+            "command": command.command_type,
+            "value": command.command_value,
+            "ttl_seconds": command.ttl_seconds,
+            "expires_at": command.expires_at.isoformat() if command.expires_at else None,
+            "created_at": command.created_at.isoformat() if command.created_at else None
+        }
+        
+        await self.send_to_device(device_id, message)
+        await self.send_to_frontend(message)
+        
+        logger.info(f"[WebSocket] Broadcasted command {command.id} to device {device_id}")
+    
+    def is_device_online(self, device_id: str) -> bool:
+        with self._lock:
+            return device_id in self.active_connections and len(self.active_connections[device_id]) > 0
+
+ws_manager = WebSocketConnectionManager()
 
 def create_device_command(
     device_id: str,
@@ -1532,6 +1613,7 @@ def create_device_command(
     ttl_seconds: int = COMMAND_TTL_SECONDS,
     reason: str = None,
     source: str = "api",
+    client_msg_id: str = None,
     db: Session = None
 ) -> DeviceCommand:
     now = datetime.utcnow()
@@ -1540,6 +1622,7 @@ def create_device_command(
     cmd = DeviceCommand(
         id=str(uuid.uuid4()),
         device_id=device_id,
+        client_msg_id=client_msg_id,
         command_type=command,
         command_value=value,
         status=CommandStatus.PENDING,
@@ -1553,9 +1636,20 @@ def create_device_command(
     
     if db:
         db.add(cmd)
-        db.commit()
-        db.refresh(cmd)
-        logger.info(f"[DeviceCommand] Created command {cmd.id} for device {device_id}: {command}={value}, TTL={ttl_seconds}s")
+        try:
+            db.commit()
+            db.refresh(cmd)
+            logger.info(f"[DeviceCommand] Created command {cmd.id} for device {device_id}: {command}={value}, TTL={ttl_seconds}s")
+        except Exception as e:
+            db.rollback()
+            if client_msg_id:
+                existing = db.query(DeviceCommand).filter(
+                    DeviceCommand.client_msg_id == client_msg_id
+                ).first()
+                if existing:
+                    logger.warning(f"[DeviceCommand] Duplicate client_msg_id: {client_msg_id}, returning existing command {existing.id}")
+                    return existing
+            raise
     
     return cmd
 
@@ -1576,15 +1670,34 @@ def update_command_status(
     new_status: CommandStatus,
     db: Session,
     result_data: dict = None,
-    error_message: str = None
-) -> DeviceCommand:
-    cmd = db.query(DeviceCommand).filter(DeviceCommand.id == cmd_id).first()
+    error_message: str = None,
+    client_msg_id: str = None
+) -> tuple:
+    if client_msg_id:
+        existing_ack = db.query(DeviceCommand).filter(
+            DeviceCommand.client_msg_id == client_msg_id
+        ).first()
+        if existing_ack:
+            logger.warning(f"[DeviceCommand] Duplicate ack with client_msg_id: {client_msg_id}")
+            return existing_ack, False
+    
+    cmd = db.query(DeviceCommand).filter(
+        DeviceCommand.id == cmd_id
+    ).with_for_update().first()
+    
     if not cmd:
-        return None
+        return None, False
+    
+    if cmd.status in [CommandStatus.EXECUTED, CommandStatus.FAILED, CommandStatus.EXPIRED]:
+        logger.warning(f"[DeviceCommand] Command {cmd_id} already in final state: {cmd.status.value}")
+        return cmd, False
     
     now = datetime.utcnow()
     cmd.status = new_status
     cmd.updated_at = now
+    
+    if client_msg_id:
+        cmd.client_msg_id = client_msg_id
     
     if new_status == CommandStatus.DELIVERED:
         cmd.delivered_at = now
@@ -1597,10 +1710,15 @@ def update_command_status(
     elif new_status == CommandStatus.EXPIRED:
         cmd.expired_at = now
     
-    db.commit()
-    db.refresh(cmd)
-    logger.info(f"[DeviceCommand] Command {cmd_id} status updated to {new_status.value}")
-    return cmd
+    try:
+        db.commit()
+        db.refresh(cmd)
+        logger.info(f"[DeviceCommand] Command {cmd_id} status updated to {new_status.value}")
+        return cmd, True
+    except Exception as e:
+        db.rollback()
+        logger.error(f"[DeviceCommand] Failed to update command {cmd_id}: {e}")
+        return None, False
 
 def expire_overdue_commands(db: Session, now: datetime = None) -> int:
     if now is None:
@@ -2058,6 +2176,7 @@ def send_device_command(
         ttl_seconds=command_data.ttl_seconds,
         reason=command_data.reason,
         source="api",
+        client_msg_id=command_data.client_msg_id,
         db=db
     )
     
@@ -2184,23 +2303,6 @@ def acknowledge_command(
             detail=f"Authentication failed: {error_msg}"
         )
     
-    cmd = db.query(DeviceCommand).filter(
-        DeviceCommand.id == command_id,
-        DeviceCommand.device_id == device_id
-    ).first()
-    
-    if not cmd:
-        raise HTTPException(
-            status_code=404,
-            detail="Command not found."
-        )
-    
-    if cmd.status in [CommandStatus.EXECUTED, CommandStatus.FAILED, CommandStatus.EXPIRED]:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Command already in final state: {cmd.status.value}"
-        )
-    
     if ack_data is None:
         ack_data = CommandAck()
     
@@ -2215,28 +2317,39 @@ def acknowledge_command(
             detail="Invalid status. Must be 'executed' or 'failed'."
         )
     
-    now = datetime.utcnow()
-    cmd.status = new_status
-    cmd.updated_at = now
+    cmd, success = update_command_status(
+        cmd_id=command_id,
+        new_status=new_status,
+        db=db,
+        result_data=ack_data.result,
+        error_message=ack_data.error_message,
+        client_msg_id=ack_data.client_msg_id
+    )
     
-    if new_status == CommandStatus.EXECUTED:
-        cmd.executed_at = now
-        cmd.result_data = ack_data.result
-        logger.info(f"[DeviceCommand] Command {command_id} executed successfully by device {device_id}")
-    elif new_status == CommandStatus.FAILED:
-        cmd.failed_at = now
-        cmd.error_message = ack_data.error_message
-        logger.warning(f"[DeviceCommand] Command {command_id} failed on device {device_id}: {ack_data.error_message}")
+    if cmd is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Command not found."
+        )
     
-    db.commit()
-    db.refresh(cmd)
+    if not success:
+        if cmd.status in [CommandStatus.EXECUTED, CommandStatus.FAILED, CommandStatus.EXPIRED]:
+            return {
+                "message": f"Command already {cmd.status.value} (idempotent response)",
+                "command_id": cmd.id,
+                "device_id": cmd.device_id,
+                "status": cmd.status.value,
+                "updated_at": cmd.updated_at.isoformat() if cmd.updated_at else None,
+                "is_idempotent": True
+            }
     
     return {
         "message": f"Command {new_status.value} successfully",
         "command_id": cmd.id,
         "device_id": cmd.device_id,
         "status": cmd.status.value,
-        "updated_at": cmd.updated_at.isoformat() if cmd.updated_at else None
+        "updated_at": cmd.updated_at.isoformat() if cmd.updated_at else None,
+        "is_idempotent": False
     }
 
 @app.get("/devices/{device_id}/commands")
@@ -2295,6 +2408,84 @@ def get_device_commands(
         "device_id": device_id,
         "count": len(result),
         "commands": result
+    }
+
+@app.websocket("/ws/devices/{device_id}")
+async def websocket_device_endpoint(websocket: WebSocket, device_id: str):
+    await ws_manager.connect(websocket, device_id)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type")
+                
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": datetime.utcnow().isoformat()})
+                elif msg_type == "ack":
+                    command_id = message.get("command_id")
+                    status = message.get("status", "executed")
+                    result = message.get("result")
+                    client_msg_id = message.get("client_msg_id")
+                    
+                    logger.info(f"[WebSocket] Received ack for command {command_id} from device {device_id}")
+                    
+                    await websocket.send_json({
+                        "type": "ack_received",
+                        "command_id": command_id,
+                        "status": "processing"
+                    })
+                else:
+                    logger.warning(f"[WebSocket] Unknown message type: {msg_type}")
+                    
+            except json.JSONDecodeError:
+                logger.warning(f"[WebSocket] Invalid JSON message from device {device_id}")
+                
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, device_id)
+        logger.info(f"[WebSocket] Device {device_id} disconnected")
+    except Exception as e:
+        logger.error(f"[WebSocket] Error for device {device_id}: {e}")
+        ws_manager.disconnect(websocket, device_id)
+
+@app.websocket("/ws/frontend")
+async def websocket_frontend_endpoint(websocket: WebSocket):
+    await ws_manager.connect(websocket, device_id=None)
+    try:
+        while True:
+            data = await websocket.receive_text()
+            try:
+                message = json.loads(data)
+                msg_type = message.get("type")
+                
+                if msg_type == "ping":
+                    await websocket.send_json({"type": "pong", "timestamp": datetime.utcnow().isoformat()})
+                elif msg_type == "subscribe_device":
+                    device_id = message.get("device_id")
+                    logger.info(f"[WebSocket] Frontend subscribed to device: {device_id}")
+                    await websocket.send_json({
+                        "type": "subscribed",
+                        "device_id": device_id
+                    })
+                    
+            except json.JSONDecodeError:
+                logger.warning("[WebSocket] Invalid JSON message from frontend")
+                
+    except WebSocketDisconnect:
+        ws_manager.disconnect(websocket, device_id=None)
+        logger.info("[WebSocket] Frontend disconnected")
+    except Exception as e:
+        logger.error(f"[WebSocket] Error for frontend: {e}")
+        ws_manager.disconnect(websocket, device_id=None)
+
+@app.get("/ws/status")
+def get_websocket_status():
+    return {
+        "device_connections": {
+            device_id: len(connections)
+            for device_id, connections in ws_manager.active_connections.items()
+        },
+        "frontend_connections": len(ws_manager._frontend_connections)
     }
 
 @app.post("/devices/data")
