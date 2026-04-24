@@ -25,7 +25,10 @@ import asyncio
 import atexit
 import signal
 import enum
+import gc
 from pathlib import Path
+from dataclasses import dataclass, field
+from typing import List as TypingList
 
 logging.basicConfig(
     level=logging.INFO,
@@ -76,6 +79,234 @@ WEBHOOK_TIMEOUT = 5
 
 memory_event_queue = deque(maxlen=MAX_MEMORY_EVENTS)
 memory_event_lock = threading.Lock()
+
+BULK_INSERT_THRESHOLD = int(os.getenv("BULK_INSERT_THRESHOLD", "50"))
+BULK_INSERT_INTERVAL = float(os.getenv("BULK_INSERT_INTERVAL", "1.0"))
+DEVICE_CACHE_TTL = int(os.getenv("DEVICE_CACHE_TTL", "30"))
+
+@dataclass
+class BufferedData:
+    device_id: str
+    payload: dict
+    temperature: Optional[float] = None
+    humidity: Optional[float] = None
+    is_alert: bool = False
+    recorded_at: datetime = field(default_factory=datetime.utcnow)
+    id: str = field(default_factory=lambda: str(uuid.uuid4()))
+
+@dataclass
+class CachedDeviceInfo:
+    device_id: str
+    secret_key: str
+    status: str
+    cached_at: datetime = field(default_factory=datetime.utcnow)
+
+class BulkDataBuffer:
+    def __init__(self):
+        self._lock: threading.Lock = threading.Lock()
+        self._buffer: TypingList[BufferedData] = []
+        self._last_flush_time: float = time.time()
+        self._device_status_updates: Dict[str, datetime] = {}
+        self._flush_count: int = 0
+        self._total_records: int = 0
+        
+    def add(self, data: BufferedData, device_id: str) -> int:
+        with self._lock:
+            self._buffer.append(data)
+            self._device_status_updates[device_id] = data.recorded_at
+            buffer_size = len(self._buffer)
+            
+            should_flush = (
+                buffer_size >= BULK_INSERT_THRESHOLD or
+                (time.time() - self._last_flush_time) >= BULK_INSERT_INTERVAL
+            )
+            
+            if should_flush:
+                self._do_flush()
+            
+            return buffer_size
+    
+    def _do_flush(self) -> int:
+        if not self._buffer:
+            return 0
+        
+        buffer_copy = self._buffer.copy()
+        status_updates_copy = self._device_status_updates.copy()
+        self._buffer.clear()
+        self._device_status_updates.clear()
+        self._last_flush_time = time.time()
+        
+        try:
+            db = SessionLocal()
+            
+            data_mappings = []
+            history_mappings = []
+            
+            for data in buffer_copy:
+                data_mappings.append({
+                    "id": data.id,
+                    "device_id": data.device_id,
+                    "payload": data.payload,
+                    "recorded_at": data.recorded_at
+                })
+                
+                history_mappings.append({
+                    "id": str(uuid.uuid4()),
+                    "device_id": data.device_id,
+                    "payload": data.payload,
+                    "timestamp": data.recorded_at,
+                    "temperature": data.temperature,
+                    "humidity": data.humidity,
+                    "is_alert": data.is_alert
+                })
+            
+            if data_mappings:
+                db.bulk_insert_mappings(DeviceData, data_mappings)
+                db.bulk_insert_mappings(DeviceDataHistory, history_mappings)
+            
+            for device_id, last_seen in status_updates_copy.items():
+                device = db.query(Device).filter(
+                    Device.device_id == device_id
+                ).first()
+                
+                if device:
+                    old_status = device.status.value
+                    device.last_heartbeat = last_seen
+                    device.last_seen = last_seen
+                    
+                    if device.status != DeviceStatus.ONLINE:
+                        device.status = DeviceStatus.ONLINE
+                        new_status = device.status.value
+                        record_status_event(
+                            db,
+                            device_id,
+                            "online",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason="Device data reported via bulk insert",
+                            details={"timestamp": last_seen.isoformat()}
+                        )
+            
+            db.commit()
+            db.expire_all()
+            
+            self._flush_count += 1
+            self._total_records += len(buffer_copy)
+            
+            if self._flush_count % 10 == 0:
+                logger.info(f"[BulkBuffer] Flushed {len(buffer_copy)} records, total: {self._total_records}")
+            
+            return len(buffer_copy)
+            
+        except Exception as e:
+            logger.error(f"[BulkBuffer] Flush error: {e}")
+            try:
+                db.rollback()
+            except:
+                pass
+            return 0
+        finally:
+            try:
+                db.close()
+            except:
+                pass
+    
+    def force_flush(self) -> int:
+        with self._lock:
+            return self._do_flush()
+    
+    def get_stats(self) -> dict:
+        with self._lock:
+            return {
+                "buffer_size": len(self._buffer),
+                "last_flush_seconds_ago": time.time() - self._last_flush_time,
+                "flush_count": self._flush_count,
+                "total_records": self._total_records,
+                "pending_device_updates": len(self._device_status_updates)
+            }
+
+class DeviceInfoCache:
+    def __init__(self):
+        self._lock: threading.Lock = threading.Lock()
+        self._cache: Dict[str, CachedDeviceInfo] = {}
+        self._hits: int = 0
+        self._misses: int = 0
+    
+    def get(self, device_id: str, db: Session = None) -> Optional[CachedDeviceInfo]:
+        with self._lock:
+            cached = self._cache.get(device_id)
+            
+            if cached:
+                age = (datetime.utcnow() - cached.cached_at).total_seconds()
+                if age < DEVICE_CACHE_TTL:
+                    self._hits += 1
+                    return cached
+            
+                self._cache.pop(device_id, None)
+        
+        if db is None:
+            db = SessionLocal()
+            should_close = True
+        else:
+            should_close = False
+        
+        try:
+            device = db.query(Device).filter(
+                Device.device_id == device_id
+            ).first()
+            
+            if device:
+                info = CachedDeviceInfo(
+                    device_id=device_id,
+                    secret_key=device.secret_key,
+                    status=device.status.value
+                )
+                
+                with self._lock:
+                    self._cache[device_id] = info
+                    self._misses += 1
+                
+                return info
+            else:
+                with self._lock:
+                    self._misses += 1
+                return None
+                
+        finally:
+            if should_close:
+                db.close()
+    
+    def invalidate(self, device_id: str):
+        with self._lock:
+            self._cache.pop(device_id, None)
+    
+    def clear_expired(self):
+        with self._lock:
+            now = datetime.utcnow()
+            expired_keys = [
+                k for k, v in self._cache.items()
+                if (now - v.cached_at).total_seconds() >= DEVICE_CACHE_TTL
+            ]
+            for k in expired_keys:
+                self._cache.pop(k, None)
+    
+    def get_stats(self) -> dict:
+        with self._lock:
+            total = self._hits + self._misses
+            hit_rate = self._hits / total if total > 0 else 0
+            return {
+                "cache_size": len(self._cache),
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": hit_rate
+            }
+
+bulk_buffer = BulkDataBuffer()
+device_cache = DeviceInfoCache()
+
+def force_gc_if_needed():
+    gc.collect()
+    gc.collect()
 
 class NotificationEngine:
     def __init__(self):
@@ -716,7 +947,9 @@ def check_all_devices_status():
         print(f"[Scheduler] Error checking devices: {e}")
         logger.error(f"[Scheduler] Error checking devices: {e}", exc_info=True)
     finally:
+        db.expire_all()
         db.close()
+        gc.collect(generation=2)
 
 def get_session_local_factory():
     return SessionLocal
@@ -2195,7 +2428,7 @@ def send_device_command(
         }
     )
     
-    return {
+    result = {
         "message": "Command created successfully",
         "command_id": cmd.id,
         "device_id": cmd.device_id,
@@ -2206,6 +2439,11 @@ def send_device_command(
         "expires_at": cmd.expires_at.isoformat() if cmd.expires_at else None,
         "created_at": cmd.created_at.isoformat() if cmd.created_at else None
     }
+    
+    db.expire_all()
+    gc.collect(generation=1)
+    
+    return result
 
 @app.get("/devices/{device_id}/commands/pending")
 def get_pending_device_commands(
@@ -2264,12 +2502,17 @@ def get_pending_device_commands(
             "ttl_remaining": int((cmd.expires_at - now).total_seconds()) if cmd.expires_at else 0
         })
     
-    return {
+    response = {
         "device_id": device_id,
         "pending_count": len(result),
         "commands": result,
         "queried_at": now.isoformat()
     }
+    
+    db.expire_all()
+    gc.collect(generation=1)
+    
+    return response
 
 @app.post("/devices/{device_id}/commands/{command_id}/ack")
 def acknowledge_command(
@@ -2334,7 +2577,7 @@ def acknowledge_command(
     
     if not success:
         if cmd.status in [CommandStatus.EXECUTED, CommandStatus.FAILED, CommandStatus.EXPIRED]:
-            return {
+            result = {
                 "message": f"Command already {cmd.status.value} (idempotent response)",
                 "command_id": cmd.id,
                 "device_id": cmd.device_id,
@@ -2342,8 +2585,11 @@ def acknowledge_command(
                 "updated_at": cmd.updated_at.isoformat() if cmd.updated_at else None,
                 "is_idempotent": True
             }
+            db.expire_all()
+            gc.collect(generation=1)
+            return result
     
-    return {
+    result = {
         "message": f"Command {new_status.value} successfully",
         "command_id": cmd.id,
         "device_id": cmd.device_id,
@@ -2351,6 +2597,11 @@ def acknowledge_command(
         "updated_at": cmd.updated_at.isoformat() if cmd.updated_at else None,
         "is_idempotent": False
     }
+    
+    db.expire_all()
+    gc.collect(generation=1)
+    
+    return result
 
 @app.get("/devices/{device_id}/commands")
 def get_device_commands(
@@ -2404,11 +2655,16 @@ def get_device_commands(
             "created_at": cmd.created_at.isoformat() if cmd.created_at else None
         })
     
-    return {
+    response = {
         "device_id": device_id,
         "count": len(result),
         "commands": result
     }
+    
+    db.expire_all()
+    gc.collect(generation=1)
+    
+    return response
 
 @app.websocket("/ws/devices/{device_id}")
 async def websocket_device_endpoint(websocket: WebSocket, device_id: str):
@@ -2501,17 +2757,15 @@ def report_device_data(
             detail="Missing authentication headers: X-Signature and X-Timestamp are required"
         )
     
-    device = db.query(Device).filter(
-        Device.device_id == data_report.device_id
-    ).first()
+    device_info = device_cache.get(data_report.device_id, db)
     
-    if not device:
+    if not device_info:
         raise HTTPException(
             status_code=404,
             detail="Device not found. Please register the device first."
         )
     
-    is_valid, error_msg = verify_signature(data_report.device_id, x_timestamp, x_signature, device.secret_key)
+    is_valid, error_msg = verify_signature(data_report.device_id, x_timestamp, x_signature, device_info.secret_key)
     if not is_valid:
         raise HTTPException(
             status_code=401,
@@ -2550,8 +2804,7 @@ def report_device_data(
                 "final_payload": final_data
             }
             
-            print(f"[Protocol Adapter] Device {data_report.device_id} parsed raw_payload: "
-                  f"raw={data_report.raw_payload} -> final={final_data}")
+            logger.debug(f"[Protocol Adapter] Device {data_report.device_id} parsed raw_payload")
             
         except Exception as e:
             raise HTTPException(
@@ -2584,58 +2837,35 @@ def report_device_data(
     if parsed_info:
         full_payload["_raw_parsed"] = parsed_info
     
-    new_data = DeviceData(
-        id=str(uuid.uuid4()),
-        device_id=data_report.device_id,
-        payload=full_payload,
-        recorded_at=datetime.utcnow()
-    )
-    db.add(new_data)
+    data_id = str(uuid.uuid4())
+    recorded_at = datetime.utcnow()
     
-    history_record = DeviceDataHistory(
-        id=str(uuid.uuid4()),
+    buffered_data = BufferedData(
+        id=data_id,
         device_id=data_report.device_id,
         payload=full_payload,
-        timestamp=datetime.utcnow(),
         temperature=temperature,
         humidity=humidity,
-        is_alert=is_alert
+        is_alert=is_alert,
+        recorded_at=recorded_at
     )
-    db.add(history_record)
     
-    now = datetime.utcnow()
-    old_status = device.status.value
+    buffer_size = bulk_buffer.add(buffered_data, data_report.device_id)
     
-    device.last_heartbeat = now
-    device.last_seen = now
-    
-    if device.status != DeviceStatus.ONLINE:
-        device.status = DeviceStatus.ONLINE
-        new_status = device.status.value
-        record_status_event(
-            db,
-            device.device_id,
-            "online",
-            old_status=old_status,
-            new_status=new_status,
-            reason="Device data reported",
-            details={
-                "timestamp": now.isoformat()
-            }
-        )
-        logger.info(f"[DeviceOnline] Device {device.device_id} marked as ONLINE via data report")
-    
-    db.commit()
-    db.refresh(new_data)
-    db.refresh(history_record)
+    db.expire_all()
+    gc.collect(generation=1)
     
     response_data = {
-        "message": "Data reported successfully",
-        "data_id": new_data.id,
-        "history_id": history_record.id,
-        "device_id": new_data.device_id,
-        "payload": new_data.payload,
-        "recorded_at": new_data.recorded_at
+        "message": "Data accepted for processing",
+        "data_id": data_id,
+        "history_id": "batch_processing",
+        "device_id": data_report.device_id,
+        "payload": full_payload,
+        "recorded_at": recorded_at,
+        "buffer_status": {
+            "current_size": buffer_size,
+            "batch_threshold": BULK_INSERT_THRESHOLD
+        }
     }
     
     if parsed_info:
@@ -3410,7 +3640,7 @@ def get_device_history(
         }
         data_points.append(data_point)
     
-    return {
+    result = {
         "device_id": device_id,
         "time_range": {
             "start": start_time,
@@ -3421,6 +3651,11 @@ def get_device_history(
         "total_data_points": len(data_points),
         "data_points": data_points
     }
+    
+    db.expire_all()
+    gc.collect(generation=1)
+    
+    return result
 
 @app.get("/devices/{device_id}/history/latest")
 def get_device_history_latest(
@@ -3462,12 +3697,17 @@ def get_device_history_latest(
             "is_alert": record.is_alert
         })
     
-    return {
+    result = {
         "device_id": device_id,
         "limit": limit,
         "actual_count": len(data_points),
         "data_points": data_points
     }
+    
+    db.expire_all()
+    gc.collect(generation=1)
+    
+    return result
 
 @app.get("/audit/logs")
 def get_audit_logs(

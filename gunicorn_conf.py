@@ -1,24 +1,27 @@
 import os
 import multiprocessing
+import logging
+
+logger = logging.getLogger("gunicorn_config")
 
 bind = os.getenv("GUNICORN_BIND", "0.0.0.0:8000")
 
-workers = int(os.getenv("GUNICORN_WORKERS", multiprocessing.cpu_count() * 2 + 1))
+workers = int(os.getenv("GUNICORN_WORKERS", max(2, multiprocessing.cpu_count())))
 
 worker_class = os.getenv("GUNICORN_WORKER_CLASS", "uvicorn.workers.UvicornWorker")
 
-worker_connections = int(os.getenv("GUNICORN_WORKER_CONNECTIONS", "1000"))
+worker_connections = int(os.getenv("GUNICORN_WORKER_CONNECTIONS", "5000"))
 
-timeout = int(os.getenv("GUNICORN_TIMEOUT", "120"))
+timeout = int(os.getenv("GUNICORN_TIMEOUT", "30"))
 
-keepalive = int(os.getenv("GUNICORN_KEEPALIVE", "5"))
+keepalive = int(os.getenv("GUNICORN_KEEPALIVE", "60"))
 
-backlog = int(os.getenv("GUNICORN_BACKLOG", "2048"))
+backlog = int(os.getenv("GUNICORN_BACKLOG", "4096"))
 
 threads = int(os.getenv("GUNICORN_THREADS", "1"))
 
-max_requests = int(os.getenv("GUNICORN_MAX_REQUESTS", "10000"))
-max_requests_jitter = int(os.getenv("GUNICORN_MAX_REQUESTS_JITTER", "1000"))
+max_requests = int(os.getenv("GUNICORN_MAX_REQUESTS", "5000"))
+max_requests_jitter = int(os.getenv("GUNICORN_MAX_REQUESTS_JITTER", "500"))
 
 preload_app = os.getenv("GUNICORN_PRELOAD_APP", "false").lower() == "true"
 
@@ -31,15 +34,33 @@ pidfile = os.getenv("GUNICORN_PIDFILE", "./gunicorn.pid")
 accesslog = os.getenv("GUNICORN_ACCESSLOG", "-")
 errorlog = os.getenv("GUNICORN_ERRORLOG", "-")
 
-loglevel = os.getenv("GUNICORN_LOGLEVEL", "info")
+loglevel = os.getenv("GUNICORN_LOGLEVEL", "warning")
 
 access_log_format = os.getenv(
     "GUNICORN_ACCESS_LOG_FORMAT",
     '%(h)s %(l)s %(u)s %(t)s "%(r)s" %(s)s %(b)s "%(f)s" "%(a)s" %(D)s'
 )
 
+limit_request_line = int(os.getenv("GUNICORN_LIMIT_REQUEST_LINE", "8190"))
+limit_request_fields = int(os.getenv("GUNICORN_LIMIT_REQUEST_FIELDS", "100"))
+limit_request_field_size = int(os.getenv("GUNICORN_LIMIT_REQUEST_FIELD_SIZE", "8190"))
+
 def post_fork(server, worker):
     server.log.info("Worker spawned (pid: %s)", worker.pid)
+    
+    try:
+        import uvloop
+        import asyncio
+        
+        policy = uvloop.EventLoopPolicy()
+        asyncio.set_event_loop_policy(policy)
+        
+        server.log.info("[uvloop] Successfully enabled uvloop as default event loop")
+    except ImportError:
+        server.log.warning("[uvloop] uvloop not installed, using default asyncio event loop")
+        server.log.info("[uvloop] Install with: pip install uvloop")
+    except Exception as e:
+        server.log.warning(f"[uvloop] Failed to enable uvloop: {e}")
 
 def pre_fork(server, worker):
     pass
