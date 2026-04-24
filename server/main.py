@@ -26,9 +26,12 @@ import atexit
 import signal
 import enum
 import gc
+import weakref
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List as TypingList
+from typing import Optional, Any, Dict, Set
+from sqlalchemy.orm import scoped_session
 
 logging.basicConfig(
     level=logging.INFO,
@@ -62,9 +65,11 @@ COMMAND_TTL_SECONDS = 600
 SIGNATURE_TIMESTAMP_TOLERANCE = 60
 
 engine = create_engine(
-    DATABASE_URL, connect_args={"check_same_thread": False}
+    DATABASE_URL, connect_args={"check_same_thread": False},
+    pool_size=20, max_overflow=40, pool_timeout=30, pool_recycle=1800
 )
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+ScopedSession = scoped_session(SessionLocal)
 
 Base.metadata.create_all(bind=engine)
 
@@ -80,9 +85,10 @@ WEBHOOK_TIMEOUT = 5
 memory_event_queue = deque(maxlen=MAX_MEMORY_EVENTS)
 memory_event_lock = threading.Lock()
 
-BULK_INSERT_THRESHOLD = int(os.getenv("BULK_INSERT_THRESHOLD", "50"))
-BULK_INSERT_INTERVAL = float(os.getenv("BULK_INSERT_INTERVAL", "1.0"))
-DEVICE_CACHE_TTL = int(os.getenv("DEVICE_CACHE_TTL", "30"))
+ASYNC_QUEUE_MAXSIZE = int(os.getenv("ASYNC_QUEUE_MAXSIZE", "10000"))
+BULK_INSERT_THRESHOLD = int(os.getenv("BULK_INSERT_THRESHOLD", "100"))
+BULK_INSERT_INTERVAL = float(os.getenv("BULK_INSERT_INTERVAL", "3.0"))
+DEVICE_CACHE_TTL = int(os.getenv("DEVICE_CACHE_TTL", "60"))
 
 @dataclass
 class BufferedData:
@@ -101,48 +107,94 @@ class CachedDeviceInfo:
     status: str
     cached_at: datetime = field(default_factory=datetime.utcnow)
 
-class BulkDataBuffer:
+class AsyncDataQueue:
     def __init__(self):
-        self._lock: threading.Lock = threading.Lock()
-        self._buffer: TypingList[BufferedData] = []
-        self._last_flush_time: float = time.time()
+        self._queue: Optional[asyncio.Queue] = None
         self._device_status_updates: Dict[str, datetime] = {}
         self._flush_count: int = 0
         self._total_records: int = 0
+        self._running: bool = False
+        self._worker_task: Optional[asyncio.Task] = None
+        self._shutdown_event: Optional[asyncio.Event] = None
         
-    def add(self, data: BufferedData, device_id: str) -> int:
-        with self._lock:
-            self._buffer.append(data)
-            self._device_status_updates[device_id] = data.recorded_at
-            buffer_size = len(self._buffer)
-            
-            should_flush = (
-                buffer_size >= BULK_INSERT_THRESHOLD or
-                (time.time() - self._last_flush_time) >= BULK_INSERT_INTERVAL
-            )
-            
-            if should_flush:
-                self._do_flush()
-            
-            return buffer_size
-    
-    def _do_flush(self) -> int:
-        if not self._buffer:
-            return 0
+    def initialize(self, loop: asyncio.AbstractEventLoop = None):
+        if loop is None:
+            loop = asyncio.get_event_loop()
+        self._queue = asyncio.Queue(maxsize=ASYNC_QUEUE_MAXSIZE)
+        self._shutdown_event = asyncio.Event()
+        self._running = True
+        logger.info(f"[AsyncQueue] Initialized with maxsize={ASYNC_QUEUE_MAXSIZE}")
         
-        buffer_copy = self._buffer.copy()
-        status_updates_copy = self._device_status_updates.copy()
-        self._buffer.clear()
-        self._device_status_updates.clear()
-        self._last_flush_time = time.time()
+    async def put(self, data: BufferedData, device_id: str):
+        if self._queue is None:
+            raise RuntimeError("AsyncDataQueue not initialized")
+        
+        self._device_status_updates[device_id] = data.recorded_at
         
         try:
-            db = SessionLocal()
+            await asyncio.wait_for(self._queue.put(data), timeout=5.0)
+        except asyncio.TimeoutError:
+            logger.warning("[AsyncQueue] Queue put timeout, dropping oldest item")
+            try:
+                self._queue.get_nowait()
+                await self._queue.put(data)
+            except Exception as e:
+                logger.error(f"[AsyncQueue] Failed to put item after timeout: {e}")
+        
+        return self._queue.qsize()
+    
+    async def _worker_loop(self):
+        logger.info("[AsyncQueue] Background worker started")
+        
+        while self._running:
+            try:
+                batch = []
+                status_updates = {}
+                
+                timeout = BULK_INSERT_INTERVAL
+                deadline = time.time() + timeout
+                
+                while len(batch) < BULK_INSERT_THRESHOLD and time.time() < deadline:
+                    try:
+                        remaining = deadline - time.time()
+                        if remaining <= 0:
+                            break
+                        
+                        data = await asyncio.wait_for(self._queue.get(), timeout=remaining)
+                        batch.append(data)
+                        
+                        if data.device_id not in status_updates:
+                            status_updates[data.device_id] = data.recorded_at
+                        else:
+                            if data.recorded_at > status_updates[data.device_id]:
+                                status_updates[data.device_id] = data.recorded_at
+                        
+                    except asyncio.TimeoutError:
+                        break
+                
+                if batch:
+                    await self._do_flush(batch, status_updates)
+                
+            except asyncio.CancelledError:
+                logger.info("[AsyncQueue] Worker cancelled")
+                break
+            except Exception as e:
+                logger.error(f"[AsyncQueue] Worker error: {e}")
+                await asyncio.sleep(1)
+        
+        logger.info("[AsyncQueue] Background worker stopped")
+    
+    async def _do_flush(self, batch: TypingList[BufferedData], status_updates: Dict[str, datetime]) -> int:
+        if not batch:
+            return 0
+        
+        try:
+            db = ScopedSession()
             
             data_mappings = []
             history_mappings = []
             
-            for data in buffer_copy:
+            for data in batch:
                 data_mappings.append({
                     "id": data.id,
                     "device_id": data.device_id,
@@ -164,66 +216,90 @@ class BulkDataBuffer:
                 db.bulk_insert_mappings(DeviceData, data_mappings)
                 db.bulk_insert_mappings(DeviceDataHistory, history_mappings)
             
-            for device_id, last_seen in status_updates_copy.items():
-                device = db.query(Device).filter(
-                    Device.device_id == device_id
-                ).first()
+            unique_device_ids = list(status_updates.keys())
+            if unique_device_ids:
+                devices = db.query(Device).filter(
+                    Device.device_id.in_(unique_device_ids)
+                ).all()
                 
-                if device:
-                    old_status = device.status.value
-                    device.last_heartbeat = last_seen
-                    device.last_seen = last_seen
-                    
-                    if device.status != DeviceStatus.ONLINE:
-                        device.status = DeviceStatus.ONLINE
-                        new_status = device.status.value
-                        record_status_event(
-                            db,
-                            device_id,
-                            "online",
-                            old_status=old_status,
-                            new_status=new_status,
-                            reason="Device data reported via bulk insert",
-                            details={"timestamp": last_seen.isoformat()}
-                        )
+                for device in devices:
+                    last_seen = status_updates.get(device.device_id)
+                    if last_seen:
+                        old_status = device.status.value
+                        device.last_heartbeat = last_seen
+                        device.last_seen = last_seen
+                        
+                        if device.status != DeviceStatus.ONLINE:
+                            device.status = DeviceStatus.ONLINE
+                            new_status = device.status.value
+                            try:
+                                record_status_event(
+                                    db,
+                                    device.device_id,
+                                    "online",
+                                    old_status=old_status,
+                                    new_status=new_status,
+                                    reason="Device data reported via async queue",
+                                    details={"timestamp": last_seen.isoformat()}
+                                )
+                            except Exception:
+                                pass
             
             db.commit()
             db.expire_all()
+            ScopedSession.remove()
             
             self._flush_count += 1
-            self._total_records += len(buffer_copy)
+            self._total_records += len(batch)
             
-            if self._flush_count % 10 == 0:
-                logger.info(f"[BulkBuffer] Flushed {len(buffer_copy)} records, total: {self._total_records}")
+            if self._flush_count % 20 == 0:
+                logger.info(f"[AsyncQueue] Flushed {len(batch)} records, total: {self._total_records}, queue: {self._queue.qsize()}")
             
-            return len(buffer_copy)
+            gc.collect(generation=1)
+            
+            return len(batch)
             
         except Exception as e:
-            logger.error(f"[BulkBuffer] Flush error: {e}")
+            logger.error(f"[AsyncQueue] Flush error: {e}")
             try:
                 db.rollback()
             except:
                 pass
-            return 0
-        finally:
             try:
-                db.close()
+                ScopedSession.remove()
             except:
                 pass
+            return 0
     
-    def force_flush(self) -> int:
-        with self._lock:
-            return self._do_flush()
+    def start_worker(self):
+        if not self._running:
+            self.initialize()
+        self._worker_task = asyncio.create_task(self._worker_loop())
+        logger.info("[AsyncQueue] Worker task started")
+    
+    async def stop_worker(self):
+        self._running = False
+        
+        if self._worker_task and not self._worker_task.done():
+            self._worker_task.cancel()
+            try:
+                await self._worker_task
+            except asyncio.CancelledError:
+                pass
+        
+        if self._queue and self._queue.qsize() > 0:
+            logger.warning(f"[AsyncQueue] Stopping with {self._queue.qsize()} items in queue")
+        
+        logger.info("[AsyncQueue] Worker stopped completely")
     
     def get_stats(self) -> dict:
-        with self._lock:
-            return {
-                "buffer_size": len(self._buffer),
-                "last_flush_seconds_ago": time.time() - self._last_flush_time,
-                "flush_count": self._flush_count,
-                "total_records": self._total_records,
-                "pending_device_updates": len(self._device_status_updates)
-            }
+        return {
+            "queue_size": self._queue.qsize() if self._queue else 0,
+            "flush_count": self._flush_count,
+            "total_records": self._total_records,
+            "running": self._running,
+            "maxsize": ASYNC_QUEUE_MAXSIZE
+        }
 
 class DeviceInfoCache:
     def __init__(self):
@@ -241,14 +317,13 @@ class DeviceInfoCache:
                 if age < DEVICE_CACHE_TTL:
                     self._hits += 1
                     return cached
-            
+                
                 self._cache.pop(device_id, None)
         
+        should_close = False
         if db is None:
-            db = SessionLocal()
+            db = ScopedSession()
             should_close = True
-        else:
-            should_close = False
         
         try:
             device = db.query(Device).filter(
@@ -274,7 +349,8 @@ class DeviceInfoCache:
                 
         finally:
             if should_close:
-                db.close()
+                db.expire_all()
+                ScopedSession.remove()
     
     def invalidate(self, device_id: str):
         with self._lock:
@@ -301,7 +377,7 @@ class DeviceInfoCache:
                 "hit_rate": hit_rate
             }
 
-bulk_buffer = BulkDataBuffer()
+data_queue = AsyncDataQueue()
 device_cache = DeviceInfoCache()
 
 def force_gc_if_needed():
@@ -1014,6 +1090,10 @@ def init_report_engine():
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    data_queue.initialize()
+    data_queue.start_worker()
+    print("[AsyncQueue] Data queue worker started")
+    
     scheduler.add_job(
         check_all_devices_status,
         'interval',
@@ -1031,9 +1111,20 @@ async def lifespan(app: FastAPI):
         print(f"[ReportEngine] Failed to initialize: {e}")
         logger.error(f"[ReportEngine] Init failed: {e}", exc_info=True)
     
+    gc.collect()
+    gc.collect()
+    
     yield
+    
+    await data_queue.stop_worker()
+    print("[AsyncQueue] Data queue worker stopped")
+    
     scheduler.shutdown()
     print("[Scheduler] Stopped")
+    
+    gc.collect()
+    gc.collect()
+    print(f"[GC] Final GC completed, unreachable objects: {gc.collect()}")
 
 app = FastAPI(title="IoT Management Platform", lifespan=lifespan)
 
@@ -1078,11 +1169,13 @@ def verify_signature(device_id: str, timestamp: str, signature: str, secret_key:
     return True, "Signature valid"
 
 def get_db():
-    db = SessionLocal()
+    db = ScopedSession()
     try:
         yield db
     finally:
-        db.close()
+        db.expire_all()
+        ScopedSession.remove()
+        gc.collect(generation=1)
 
 HIGH_RISK_OPERATIONS = {
     OperationType.DEVICE_DELETE,
@@ -2745,11 +2838,10 @@ def get_websocket_status():
     }
 
 @app.post("/devices/data")
-def report_device_data(
+async def report_device_data(
     data_report: DeviceDataReport,
     x_signature: str = Header(None, alias="X-Signature"),
-    x_timestamp: str = Header(None, alias="X-Timestamp"),
-    db: Session = Depends(get_db)
+    x_timestamp: str = Header(None, alias="X-Timestamp")
 ):
     if not x_signature or not x_timestamp:
         raise HTTPException(
@@ -2757,7 +2849,7 @@ def report_device_data(
             detail="Missing authentication headers: X-Signature and X-Timestamp are required"
         )
     
-    device_info = device_cache.get(data_report.device_id, db)
+    device_info = device_cache.get(data_report.device_id)
     
     if not device_info:
         raise HTTPException(
@@ -2776,41 +2868,50 @@ def report_device_data(
     parsed_info = {}
     
     if data_report.raw_payload is not None and data_report.raw_payload != "":
-        protocol = get_device_protocol(data_report.device_id, db)
-        
-        if protocol is None:
-            raise HTTPException(
-                status_code=400,
-                detail=f"No active protocol configured for device {data_report.device_id}. "
-                       f"Please configure a DeviceProtocol for this device to use raw_payload."
-            )
-        
+        db = ScopedSession()
         try:
-            parsed_data = parse_raw_payload(data_report.raw_payload, protocol)
+            protocol = get_device_protocol(data_report.device_id, db)
             
-            field_mappings = protocol.field_mappings or {}
-            mapped_data = apply_field_mappings(parsed_data, field_mappings)
+            if protocol is None:
+                db.expire_all()
+                ScopedSession.remove()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"No active protocol configured for device {data_report.device_id}. "
+                           f"Please configure a DeviceProtocol for this device to use raw_payload."
+                )
             
-            transform_formulas = protocol.transform_formulas or {}
-            final_data = apply_transform_formulas(mapped_data, transform_formulas)
-            
-            payload = final_data
-            
-            parsed_info = {
-                "raw_payload": data_report.raw_payload,
-                "protocol_type": protocol.protocol_type.value,
-                "parsed_data": parsed_data,
-                "mapped_data": mapped_data,
-                "final_payload": final_data
-            }
-            
-            logger.debug(f"[Protocol Adapter] Device {data_report.device_id} parsed raw_payload")
-            
-        except Exception as e:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Failed to parse raw_payload: {str(e)}"
-            )
+            try:
+                parsed_data = parse_raw_payload(data_report.raw_payload, protocol)
+                
+                field_mappings = protocol.field_mappings or {}
+                mapped_data = apply_field_mappings(parsed_data, field_mappings)
+                
+                transform_formulas = protocol.transform_formulas or {}
+                final_data = apply_transform_formulas(mapped_data, transform_formulas)
+                
+                payload = final_data
+                
+                parsed_info = {
+                    "raw_payload": data_report.raw_payload,
+                    "protocol_type": protocol.protocol_type.value,
+                    "parsed_data": parsed_data,
+                    "mapped_data": mapped_data,
+                    "final_payload": final_data
+                }
+                
+                logger.debug(f"[Protocol Adapter] Device {data_report.device_id} parsed raw_payload")
+                
+            except Exception as e:
+                db.expire_all()
+                ScopedSession.remove()
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Failed to parse raw_payload: {str(e)}"
+                )
+        finally:
+            db.expire_all()
+            ScopedSession.remove()
     
     if payload is None:
         raise HTTPException(
@@ -2850,9 +2951,8 @@ def report_device_data(
         recorded_at=recorded_at
     )
     
-    buffer_size = bulk_buffer.add(buffered_data, data_report.device_id)
+    queue_size = await data_queue.put(buffered_data, data_report.device_id)
     
-    db.expire_all()
     gc.collect(generation=1)
     
     response_data = {
@@ -2862,9 +2962,9 @@ def report_device_data(
         "device_id": data_report.device_id,
         "payload": full_payload,
         "recorded_at": recorded_at,
-        "buffer_status": {
-            "current_size": buffer_size,
-            "batch_threshold": BULK_INSERT_THRESHOLD
+        "queue_status": {
+            "current_size": queue_size,
+            "max_size": ASYNC_QUEUE_MAXSIZE
         }
     }
     

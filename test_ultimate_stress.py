@@ -20,6 +20,15 @@ except ImportError:
     print("Please run: pip install httpx websockets")
     sys.exit(1)
 
+_OBJGRAPH_AVAILABLE = False
+try:
+    import objgraph
+    _OBJGRAPH_AVAILABLE = True
+except ImportError:
+    pass
+
+_INITIAL_OBJ_COUNTS: Dict[str, int] = {}
+
 BASE_URL = os.getenv("STRESS_BASE_URL", "http://127.0.0.1:8000")
 WS_BASE_URL = BASE_URL.replace("http://", "ws://")
 
@@ -196,6 +205,74 @@ class StatsCollector:
             self.last_report_time = time.time()
 
 stats = StatsCollector()
+
+def capture_initial_objects():
+    global _INITIAL_OBJ_COUNTS
+    if not _OBJGRAPH_AVAILABLE:
+        return
+    
+    gc.collect()
+    gc.collect()
+    
+    _INITIAL_OBJ_COUNTS = objgraph.typestats()
+    print("[内存诊断] 已捕获初始对象计数")
+
+def analyze_object_growth():
+    if not _OBJGRAPH_AVAILABLE:
+        print("\n[内存诊断] objgraph 未安装，无法进行对象分析")
+        print("请运行: pip install objgraph")
+        return
+    
+    gc.collect()
+    gc.collect()
+    
+    current_counts = objgraph.typestats()
+    
+    print("\n" + "=" * 100)
+    print("对象增长分析")
+    print("=" * 100)
+    
+    growth = []
+    for type_name, current_count in current_counts.items():
+        initial_count = _INITIAL_OBJ_COUNTS.get(type_name, 0)
+        delta = current_count - initial_count
+        if delta > 0 and current_count > 10:
+            growth.append((type_name, delta, current_count, initial_count))
+    
+    growth.sort(key=lambda x: x[1], reverse=True)
+    
+    if growth:
+        print(f"\n{'类型':<35} {'增量':<12} {'当前':<12} {'初始':<12}")
+        print("-" * 75)
+        for type_name, delta, current, initial in growth[:20]:
+            print(f"{type_name:<35} {delta:<12} {current:<12} {initial:<12}")
+        
+        print(f"\n[提示] 增长最多的前 5 种类型:")
+        top_types = [g[0] for g in growth[:5]]
+        for t in top_types:
+            print(f"\n  --- {t} 的引用链 ---")
+            try:
+                objgraph.show_growth(limit=3, shortnames=False)
+            except:
+                pass
+    else:
+        print("\n  ✓ 没有检测到明显的对象增长")
+
+def show_top_leaks():
+    if not _OBJGRAPH_AVAILABLE:
+        return
+    
+    gc.collect()
+    gc.collect()
+    
+    print("\n" + "=" * 100)
+    print("潜在内存泄漏分析 (Top 10)")
+    print("=" * 100)
+    
+    try:
+        objgraph.show_most_common_types(limit=10)
+    except Exception as e:
+        print(f"  分析失败: {e}")
 
 def compute_signature(device_id: str, timestamp: str, secret_key: str) -> str:
     raw_string = f"{device_id}{timestamp}{secret_key}"
@@ -399,7 +476,15 @@ async def run_stress_test():
     print(f"  - 数据上报间隔: {DATA_REPORT_INTERVAL}秒")
     print(f"  - 测试时长: {STRESS_DURATION_MINUTES} 分钟")
     print(f"  - 统计报告间隔: {REPORT_INTERVAL_SECONDS} 秒")
+    
+    if _OBJGRAPH_AVAILABLE:
+        print(f"  - 内存诊断: objgraph 已启用")
+    else:
+        print(f"  - 内存诊断: objgraph 未安装 (运行: pip install objgraph)")
+    
     print("=" * 120)
+    
+    capture_initial_objects()
     
     print("\n[阶段 1] 注册测试设备...")
     device_info = {}
@@ -491,7 +576,13 @@ async def run_stress_test():
         print("=" * 120)
         print_stats_report()
         
-        print("\n[阶段 6] 内存泄漏检查...")
+        print("\n[阶段 6] 对象增长分析...")
+        print("-" * 120)
+        
+        analyze_object_growth()
+        show_top_leaks()
+        
+        print("\n[阶段 7] 内存泄漏检查...")
         print("-" * 120)
         
         gc.collect()
