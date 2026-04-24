@@ -37,7 +37,8 @@ from .models import (
     User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
     DeviceProtocol, ProtocolType, DeviceStatusEvent,
     AuditLog, OperationType, RiskLevel,
-    ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType
+    ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType,
+    DeviceCommand
 )
 
 from .report_engine import (
@@ -700,7 +701,9 @@ def check_all_devices_status():
                             logger.info(f"[Alert] Device {device.device_id}: Temperature {temperature}°C normalized, resetting consecutive alert count")
                             device.consecutive_alert_count = 0
         
-        if updated_count > 0 or alert_count > 0:
+        expired_commands_count = expire_overdue_commands(db, now)
+        
+        if updated_count > 0 or alert_count > 0 or expired_commands_count > 0:
             db.commit()
             if pending_count > 0:
                 print(f"[Scheduler] Marked {pending_count} devices as PENDING_OFFLINE")
@@ -1511,6 +1514,116 @@ class DeviceDataReport(BaseModel):
     payload: dict = None
     raw_payload: str = None
 
+class DeviceCommandCreate(BaseModel):
+    command: str
+    value: str = None
+    ttl_seconds: int = COMMAND_TTL_SECONDS
+    reason: str = None
+
+class CommandAck(BaseModel):
+    status: str = "executed"
+    result: dict = None
+    error_message: str = None
+
+def create_device_command(
+    device_id: str,
+    command: str,
+    value: str = None,
+    ttl_seconds: int = COMMAND_TTL_SECONDS,
+    reason: str = None,
+    source: str = "api",
+    db: Session = None
+) -> DeviceCommand:
+    now = datetime.utcnow()
+    expires_at = now + timedelta(seconds=ttl_seconds)
+    
+    cmd = DeviceCommand(
+        id=str(uuid.uuid4()),
+        device_id=device_id,
+        command_type=command,
+        command_value=value,
+        status=CommandStatus.PENDING,
+        ttl_seconds=ttl_seconds,
+        expires_at=expires_at,
+        reason=reason,
+        source=source,
+        created_at=now,
+        updated_at=now
+    )
+    
+    if db:
+        db.add(cmd)
+        db.commit()
+        db.refresh(cmd)
+        logger.info(f"[DeviceCommand] Created command {cmd.id} for device {device_id}: {command}={value}, TTL={ttl_seconds}s")
+    
+    return cmd
+
+def get_pending_commands(device_id: str, db: Session, now: datetime = None) -> list:
+    if now is None:
+        now = datetime.utcnow()
+    
+    commands = db.query(DeviceCommand).filter(
+        DeviceCommand.device_id == device_id,
+        DeviceCommand.status == CommandStatus.PENDING,
+        DeviceCommand.expires_at > now
+    ).order_by(DeviceCommand.created_at.asc()).all()
+    
+    return commands
+
+def update_command_status(
+    cmd_id: str,
+    new_status: CommandStatus,
+    db: Session,
+    result_data: dict = None,
+    error_message: str = None
+) -> DeviceCommand:
+    cmd = db.query(DeviceCommand).filter(DeviceCommand.id == cmd_id).first()
+    if not cmd:
+        return None
+    
+    now = datetime.utcnow()
+    cmd.status = new_status
+    cmd.updated_at = now
+    
+    if new_status == CommandStatus.DELIVERED:
+        cmd.delivered_at = now
+    elif new_status == CommandStatus.EXECUTED:
+        cmd.executed_at = now
+        cmd.result_data = result_data
+    elif new_status == CommandStatus.FAILED:
+        cmd.failed_at = now
+        cmd.error_message = error_message
+    elif new_status == CommandStatus.EXPIRED:
+        cmd.expired_at = now
+    
+    db.commit()
+    db.refresh(cmd)
+    logger.info(f"[DeviceCommand] Command {cmd_id} status updated to {new_status.value}")
+    return cmd
+
+def expire_overdue_commands(db: Session, now: datetime = None) -> int:
+    if now is None:
+        now = datetime.utcnow()
+    
+    expired_count = db.query(DeviceCommand).filter(
+        DeviceCommand.status.in_([CommandStatus.PENDING, CommandStatus.DELIVERED]),
+        DeviceCommand.expires_at <= now
+    ).update(
+        {
+            DeviceCommand.status: CommandStatus.EXPIRED,
+            DeviceCommand.expired_at: now,
+            DeviceCommand.updated_at: now
+        },
+        synchronize_session=False
+    )
+    
+    if expired_count > 0:
+        db.commit()
+        logger.info(f"[DeviceCommand] Expired {expired_count} overdue commands")
+    
+    return expired_count
+
 @app.post("/devices/register")
 def register_device(
     device_data: DeviceRegister,
@@ -1918,6 +2031,270 @@ def control_device(device_id: str, command: ControlCommand, db: Session = Depend
         "status": new_cmd["status"],
         "queued_at": new_cmd["created_at"],
         "ttl_seconds": COMMAND_TTL_SECONDS
+    }
+
+@app.post("/devices/{device_id}/commands")
+def send_device_command(
+    device_id: str,
+    command_data: DeviceCommandCreate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found."
+        )
+    
+    cmd = create_device_command(
+        device_id=device_id,
+        command=command_data.command,
+        value=command_data.value,
+        ttl_seconds=command_data.ttl_seconds,
+        reason=command_data.reason,
+        source="api",
+        db=db
+    )
+    
+    create_audit_log(
+        db=db,
+        operation_type=OperationType.DEVICE_CONTROL,
+        operation_desc=f"Sent command to device {device_id}: {command_data.command}",
+        user_id=x_user_id,
+        device_id=device_id,
+        ip_address=x_real_ip,
+        new_values={
+            "command_id": cmd.id,
+            "command": command_data.command,
+            "value": command_data.value,
+            "ttl_seconds": command_data.ttl_seconds
+        }
+    )
+    
+    return {
+        "message": "Command created successfully",
+        "command_id": cmd.id,
+        "device_id": cmd.device_id,
+        "command": cmd.command_type,
+        "value": cmd.command_value,
+        "status": cmd.status.value,
+        "ttl_seconds": cmd.ttl_seconds,
+        "expires_at": cmd.expires_at.isoformat() if cmd.expires_at else None,
+        "created_at": cmd.created_at.isoformat() if cmd.created_at else None
+    }
+
+@app.get("/devices/{device_id}/commands/pending")
+def get_pending_device_commands(
+    device_id: str,
+    x_signature: str = Header(None, alias="X-Signature"),
+    x_timestamp: str = Header(None, alias="X-Timestamp"),
+    limit: int = Query(50, ge=1, le=200, description="Maximum number of commands to return"),
+    db: Session = Depends(get_db)
+):
+    if not x_signature or not x_timestamp:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing authentication headers: X-Signature and X-Timestamp are required"
+        )
+    
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found. Please register the device first."
+        )
+    
+    is_valid, error_msg = verify_signature(device_id, x_timestamp, x_signature, device.secret_key)
+    if not is_valid:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Authentication failed: {error_msg}"
+        )
+    
+    now = datetime.utcnow()
+    expire_overdue_commands(db, now)
+    
+    commands = db.query(DeviceCommand).filter(
+        DeviceCommand.device_id == device_id,
+        DeviceCommand.status == CommandStatus.PENDING,
+        DeviceCommand.expires_at > now
+    ).order_by(DeviceCommand.created_at.asc()).limit(limit).all()
+    
+    for cmd in commands:
+        cmd.status = CommandStatus.DELIVERED
+        cmd.delivered_at = now
+        cmd.updated_at = now
+    
+    db.commit()
+    
+    result = []
+    for cmd in commands:
+        result.append({
+            "id": cmd.id,
+            "command": cmd.command_type,
+            "value": cmd.command_value,
+            "created_at": cmd.created_at.isoformat() if cmd.created_at else None,
+            "ttl_remaining": int((cmd.expires_at - now).total_seconds()) if cmd.expires_at else 0
+        })
+    
+    return {
+        "device_id": device_id,
+        "pending_count": len(result),
+        "commands": result,
+        "queried_at": now.isoformat()
+    }
+
+@app.post("/devices/{device_id}/commands/{command_id}/ack")
+def acknowledge_command(
+    device_id: str,
+    command_id: str,
+    ack_data: CommandAck = None,
+    x_signature: str = Header(None, alias="X-Signature"),
+    x_timestamp: str = Header(None, alias="X-Timestamp"),
+    db: Session = Depends(get_db)
+):
+    if not x_signature or not x_timestamp:
+        raise HTTPException(
+            status_code=401,
+            detail="Missing authentication headers: X-Signature and X-Timestamp are required"
+        )
+    
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found. Please register the device first."
+        )
+    
+    is_valid, error_msg = verify_signature(device_id, x_timestamp, x_signature, device.secret_key)
+    if not is_valid:
+        raise HTTPException(
+            status_code=401,
+            detail=f"Authentication failed: {error_msg}"
+        )
+    
+    cmd = db.query(DeviceCommand).filter(
+        DeviceCommand.id == command_id,
+        DeviceCommand.device_id == device_id
+    ).first()
+    
+    if not cmd:
+        raise HTTPException(
+            status_code=404,
+            detail="Command not found."
+        )
+    
+    if cmd.status in [CommandStatus.EXECUTED, CommandStatus.FAILED, CommandStatus.EXPIRED]:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Command already in final state: {cmd.status.value}"
+        )
+    
+    if ack_data is None:
+        ack_data = CommandAck()
+    
+    status_str = ack_data.status.lower()
+    if status_str == "executed":
+        new_status = CommandStatus.EXECUTED
+    elif status_str == "failed":
+        new_status = CommandStatus.FAILED
+    else:
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid status. Must be 'executed' or 'failed'."
+        )
+    
+    now = datetime.utcnow()
+    cmd.status = new_status
+    cmd.updated_at = now
+    
+    if new_status == CommandStatus.EXECUTED:
+        cmd.executed_at = now
+        cmd.result_data = ack_data.result
+        logger.info(f"[DeviceCommand] Command {command_id} executed successfully by device {device_id}")
+    elif new_status == CommandStatus.FAILED:
+        cmd.failed_at = now
+        cmd.error_message = ack_data.error_message
+        logger.warning(f"[DeviceCommand] Command {command_id} failed on device {device_id}: {ack_data.error_message}")
+    
+    db.commit()
+    db.refresh(cmd)
+    
+    return {
+        "message": f"Command {new_status.value} successfully",
+        "command_id": cmd.id,
+        "device_id": cmd.device_id,
+        "status": cmd.status.value,
+        "updated_at": cmd.updated_at.isoformat() if cmd.updated_at else None
+    }
+
+@app.get("/devices/{device_id}/commands")
+def get_device_commands(
+    device_id: str,
+    status: str = Query(None, description="Filter by status: pending, delivered, executed, failed, expired"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of commands to return"),
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail="Device not found."
+        )
+    
+    query = db.query(DeviceCommand).filter(DeviceCommand.device_id == device_id)
+    
+    if status:
+        try:
+            status_enum = CommandStatus(status.lower())
+            query = query.filter(DeviceCommand.status == status_enum)
+        except ValueError:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid status: {status}. Must be one of: {', '.join([s.value for s in CommandStatus])}"
+            )
+    
+    commands = query.order_by(desc(DeviceCommand.created_at)).limit(limit).all()
+    
+    result = []
+    for cmd in commands:
+        result.append({
+            "id": cmd.id,
+            "device_id": cmd.device_id,
+            "command": cmd.command_type,
+            "value": cmd.command_value,
+            "status": cmd.status.value,
+            "ttl_seconds": cmd.ttl_seconds,
+            "expires_at": cmd.expires_at.isoformat() if cmd.expires_at else None,
+            "delivered_at": cmd.delivered_at.isoformat() if cmd.delivered_at else None,
+            "executed_at": cmd.executed_at.isoformat() if cmd.executed_at else None,
+            "failed_at": cmd.failed_at.isoformat() if cmd.failed_at else None,
+            "expired_at": cmd.expired_at.isoformat() if cmd.expired_at else None,
+            "error_message": cmd.error_message,
+            "reason": cmd.reason,
+            "source": cmd.source,
+            "created_at": cmd.created_at.isoformat() if cmd.created_at else None
+        })
+    
+    return {
+        "device_id": device_id,
+        "count": len(result),
+        "commands": result
     }
 
 @app.post("/devices/data")

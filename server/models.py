@@ -15,7 +15,8 @@ class DeviceStatus(enum.Enum):
 class CommandStatus(enum.Enum):
     PENDING = "pending"
     DELIVERED = "delivered"
-    SUCCESS = "success"
+    EXECUTED = "executed"
+    FAILED = "failed"
     EXPIRED = "expired"
 
 class Device(Base):
@@ -245,3 +246,33 @@ class ScheduledReportConfig(Base):
     
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+class DeviceCommand(Base):
+    __tablename__ = "device_commands"
+    
+    id = Column(String(36), primary_key=True, index=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
+    
+    command_type = Column(String(64), nullable=False)
+    command_value = Column(String(255), nullable=True)
+    
+    status = Column(Enum(CommandStatus), default=CommandStatus.PENDING, index=True)
+    
+    ttl_seconds = Column(Integer, default=600)
+    expires_at = Column(DateTime, nullable=False, index=True)
+    
+    delivered_at = Column(DateTime, nullable=True)
+    executed_at = Column(DateTime, nullable=True)
+    failed_at = Column(DateTime, nullable=True)
+    expired_at = Column(DateTime, nullable=True)
+    
+    error_message = Column(String(2000), nullable=True)
+    result_data = Column(JSON, nullable=True)
+    
+    reason = Column(String(500), nullable=True)
+    source = Column(String(64), default="api")
+    
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    device = relationship("Device")
