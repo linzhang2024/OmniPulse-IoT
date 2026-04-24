@@ -941,6 +941,31 @@
             animation: pulse 1.5s infinite;
         }
         
+        .last-sync-time {
+            position: absolute;
+            bottom: 8px;
+            right: 12px;
+            font-size: 9px;
+            color: #78909c;
+            z-index: 10;
+            background: rgba(26, 26, 46, 0.8);
+            padding: 2px 8px;
+            border-radius: 4px;
+            transition: all 0.3s ease;
+        }
+        
+        .last-sync-time.flash {
+            color: #4fc3f7;
+            background: rgba(79, 195, 247, 0.2);
+            animation: flashSync 0.6s ease;
+        }
+        
+        @keyframes flashSync {
+            0% { transform: scale(1); box-shadow: 0 0 0 rgba(79, 195, 247, 0); }
+            50% { transform: scale(1.1); box-shadow: 0 0 20px rgba(79, 195, 247, 0.5); }
+            100% { transform: scale(1); box-shadow: 0 0 0 rgba(79, 195, 247, 0); }
+        }
+        
         .control-panel {
             margin-top: 16px;
             padding: 16px;
@@ -1489,10 +1514,13 @@
                     ${sensorHtml}
                     
                     <div class="realtime-chart-container" id="${chartId}" data-device-id="${device.device_id}">
-                        <div class="realtime-chart-title">📈 实时温度曲线 (最近 50 点)</div>
+                        <div class="realtime-chart-title">实时温度曲线 (最近 50 点)</div>
                         <div class="realtime-chart-status" style="${isOnline ? '' : 'display: none;'}">
                             <span class="status-dot"></span>
                             <span>实时更新中</span>
+                        </div>
+                        <div class="last-sync-time" id="last-sync-${device.device_id.replace(/-/g, '')}" data-device-id="${device.device_id}">
+                            最后同步: --
                         </div>
                         <div class="chart-loading" style="display: flex;">
                             <span>等待数据...</span>
@@ -2502,6 +2530,21 @@
         const commandHistories = new Map();
         const REALTIME_DATA_LIMIT = 50;
         
+        const deviceDataCache = new Map();
+        const pendingFetches = new Map();
+        const lastSyncTimestamps = new Map();
+        const pendingRefresh = { value: false, timeoutId: null };
+        
+        function debounceRefreshCharts() {
+            if (pendingRefresh.value) return;
+            
+            pendingRefresh.value = true;
+            pendingRefresh.timeoutId = setTimeout(() => {
+                pendingRefresh.value = false;
+                doRefreshAllRealtimeCharts();
+            }, 100);
+        }
+        
         function initRealtimeChart(chartId, deviceId) {
             const chartDom = document.getElementById(chartId);
             if (!chartDom) return null;
@@ -2613,16 +2656,68 @@
         }
         
         async function fetchRealtimeData(deviceId) {
-            try {
-                const response = await fetch(`/devices/${deviceId}/history/latest?limit=${REALTIME_DATA_LIMIT}`);
-                if (!response.ok) {
-                    return null;
-                }
-                return await response.json();
-            } catch (error) {
-                console.error(`[RealtimeChart] Failed to fetch data for device ${deviceId}:`, error);
-                return null;
+            if (pendingFetches.has(deviceId)) {
+                return pendingFetches.get(deviceId);
             }
+            
+            const fetchPromise = (async () => {
+                try {
+                    const response = await fetch(`/devices/${deviceId}/history/latest?limit=${REALTIME_DATA_LIMIT}`);
+                    if (!response.ok) {
+                        return null;
+                    }
+                    return await response.json();
+                } catch (error) {
+                    console.error(`[RealtimeChart] Failed to fetch data for device ${deviceId}:`, error);
+                    return null;
+                } finally {
+                    pendingFetches.delete(deviceId);
+                }
+            })();
+            
+            pendingFetches.set(deviceId, fetchPromise);
+            return fetchPromise;
+        }
+        
+        function applySlidingWindow(dataPoints) {
+            if (!dataPoints || dataPoints.length <= REALTIME_DATA_LIMIT) {
+                return dataPoints;
+            }
+            return dataPoints.slice(-REALTIME_DATA_LIMIT);
+        }
+        
+        function hasNewData(deviceId, dataPoints) {
+            if (!dataPoints || dataPoints.length === 0) {
+                return false;
+            }
+            
+            const lastTimestamp = lastSyncTimestamps.get(deviceId);
+            const latestPoint = dataPoints[dataPoints.length - 1];
+            
+            if (!lastTimestamp) {
+                return true;
+            }
+            
+            return latestPoint.timestamp !== lastTimestamp;
+        }
+        
+        function updateLastSyncTime(deviceId) {
+            const syncLabelId = `last-sync-${deviceId.replace(/-/g, '')}`;
+            const syncLabel = document.getElementById(syncLabelId);
+            
+            if (!syncLabel) return;
+            
+            const now = new Date();
+            const timeStr = now.toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            syncLabel.textContent = `最后同步: ${timeStr}`;
+            
+            syncLabel.classList.remove('flash');
+            void syncLabel.offsetWidth;
+            syncLabel.classList.add('flash');
+            
+            setTimeout(() => {
+                syncLabel.classList.remove('flash');
+            }, 600);
         }
         
         function updateRealtimeChart(deviceId, data) {
@@ -2631,11 +2726,19 @@
                 return;
             }
             
+            const dataPoints = applySlidingWindow(data.data_points);
+            const hasNew = hasNewData(deviceId, dataPoints);
+            
+            if (dataPoints.length > 0) {
+                const latestPoint = dataPoints[dataPoints.length - 1];
+                lastSyncTimestamps.set(deviceId, latestPoint.timestamp);
+            }
+            
             const timeLabels = [];
             const tempData = [];
             const alertPoints = [];
             
-            data.data_points.forEach((point, index) => {
+            dataPoints.forEach((point, index) => {
                 if (point.timestamp && point.temperature !== null) {
                     const timeStr = point.timestamp.replace('T', ' ').substring(11, 19);
                     timeLabels.push(timeStr);
@@ -2659,12 +2762,16 @@
                     { data: alertPoints }
                 ]
             });
+            
+            if (hasNew) {
+                updateLastSyncTime(deviceId);
+            }
         }
         
-        function refreshAllRealtimeCharts() {
+        async function doRefreshAllRealtimeCharts() {
             const chartContainers = document.querySelectorAll('.realtime-chart-container[data-device-id]');
             
-            chartContainers.forEach(container => {
+            for (const container of chartContainers) {
                 const deviceId = container.dataset.deviceId;
                 const chartId = container.id;
                 
@@ -2672,12 +2779,15 @@
                     initRealtimeChart(chartId, deviceId);
                 }
                 
-                fetchRealtimeData(deviceId).then(data => {
-                    if (data) {
-                        updateRealtimeChart(deviceId, data);
-                    }
-                });
-            });
+                const data = await fetchRealtimeData(deviceId);
+                if (data) {
+                    updateRealtimeChart(deviceId, data);
+                }
+            }
+        }
+        
+        function refreshAllRealtimeCharts() {
+            debounceRefreshCharts();
         }
         
         function resizeRealtimeCharts() {
