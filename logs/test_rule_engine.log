@@ -1,0 +1,189 @@
+2026-04-25 10:53:54,797 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,797 - RuleEngineTest - INFO - Rule Engine Test Suite
+2026-04-25 10:53:54,797 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,797 - RuleEngineTest - INFO - Test Parameters:
+2026-04-25 10:53:54,797 - RuleEngineTest - INFO -   - Test Device: TEST_RULE_1777085634
+2026-04-25 10:53:54,798 - RuleEngineTest - INFO -   - Log File: logs/test_rule_engine.log
+2026-04-25 10:53:54,798 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,798 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,798 - RuleEngineTest - INFO - TEST CASE 1: Rule Creation
+2026-04-25 10:53:54,798 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,798 - RuleEngineTest - INFO - Creating test device: TEST_RULE_1777085634
+2026-04-25 10:53:54,824 - RuleEngineTest - INFO - Test device created: TEST_RULE_1777085634, model: Thermostat-X1
+2026-04-25 10:53:54,835 - RuleEngineTest - INFO - [CreateRule] Created rule: High Temperature Alert
+2026-04-25 10:53:54,835 - RuleEngineTest - INFO -   - Metric: temperature > 40.0
+2026-04-25 10:53:54,835 - RuleEngineTest - INFO -   - Action: send_command
+2026-04-25 10:53:54,835 - RuleEngineTest - INFO -   - Command: cooling_on = auto
+2026-04-25 10:53:54,835 - RuleEngineTest - INFO - [PASS] Rule created with all required fields
+2026-04-25 10:53:54,836 - RuleEngineTest - INFO - [PASS] Rule retrieved from database
+2026-04-25 10:53:54,836 - RuleEngineTest - INFO - 
+[TEST CASE 1: PASS] Rule creation works correctly!
+2026-04-25 10:53:54,836 - RuleEngineTest - INFO - 
+============================================================
+2026-04-25 10:53:54,836 - RuleEngineTest - INFO - TEST CASE 2: Rule Engine Operator Evaluation
+2026-04-25 10:53:54,836 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,836 - RuleEngineTest - INFO -   [PASS] 45.0 > 40.0 = True (expected: True)
+2026-04-25 10:53:54,836 - RuleEngineTest - INFO -   [PASS] 40.0 > 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 35.0 > 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 35.0 < 40.0 = True (expected: True)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 40.0 < 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 45.0 < 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 40.0 == 40.0 = True (expected: True)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 45.0 == 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 45.0 >= 40.0 = True (expected: True)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 40.0 >= 40.0 = True (expected: True)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 35.0 >= 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 35.0 <= 40.0 = True (expected: True)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 40.0 <= 40.0 = True (expected: True)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 45.0 <= 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 45.0 != 40.0 = True (expected: True)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO -   [PASS] 40.0 != 40.0 = False (expected: False)
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,837 - RuleEngineTest - INFO - Testing metric value extraction:
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO -   [PASS] payload={'temperature': 25.5}, metric='temperature' -> 25.5 (expected: 25.5)
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO -   [PASS] payload={'temp': 25.5}, metric='temperature' -> 25.5 (expected: 25.5)
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO -   [PASS] payload={'humidity': 60}, metric='humidity' -> 60.0 (expected: 60.0)
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO -   [PASS] payload={'hum': 60}, metric='humidity' -> 60.0 (expected: 60.0)
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO -   [PASS] payload={'temperature': 'invalid'}, metric='temperature' -> None (expected: None)
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO -   [PASS] payload={'other': 100}, metric='temperature' -> None (expected: None)
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO - 
+[TEST CASE 2: PASS] Rule engine evaluation works correctly!
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO - 
+============================================================
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO - TEST CASE 3: Temperature Rule Trigger (Main Test)
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO - 测试场景: 当温控器温度 > 40°C 时，自动下发冷气开启指令
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,838 - RuleEngineTest - INFO - Creating test device: TEST_RULE_1777085634
+2026-04-25 10:53:54,867 - RuleEngineTest - INFO - Test device created: TEST_RULE_1777085634, model: Thermostat-X1
+2026-04-25 10:53:54,868 - RuleEngineTest - INFO - [Step 1] 创建规则: 温度 > 40°C 时下发冷气开启指令
+2026-04-25 10:53:54,875 - RuleEngineTest - INFO - [CreateRule] Created rule: 高温自动制冷
+2026-04-25 10:53:54,875 - RuleEngineTest - INFO -   - Metric: temperature > 40.0
+2026-04-25 10:53:54,875 - RuleEngineTest - INFO -   - Action: send_command
+2026-04-25 10:53:54,875 - RuleEngineTest - INFO -   - Command: cooling_on = auto
+2026-04-25 10:53:54,879 - RuleEngineTest - INFO - [Step 1: PASS] 规则创建成功，初始指令数量: 0
+2026-04-25 10:53:54,879 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,879 - RuleEngineTest - INFO - [Step 2] 上报温度 35°C (低于阈值，不应触发规则)
+2026-04-25 10:53:54,881 - RuleEngineTest - INFO - [Step 2: PASS] 35°C 未触发规则，指令数量: 0
+2026-04-25 10:53:54,881 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,881 - RuleEngineTest - INFO - [Step 3] 上报温度 45°C (高于阈值，应触发规则)
+2026-04-25 10:53:54,883 - RuleEngineTest - INFO - [RuleEngine] Rule '高温自动制冷' matched for device TEST_RULE_1777085634: temperature=45.0 > 40.0
+2026-04-25 10:53:54,903 - RuleEngineTest - INFO - [RuleEngine] Created command 'cooling_on' for device TEST_RULE_1777085634 (id=933cfccc-83f6-42ee-ba9a-26760ae23c9b)
+2026-04-25 10:53:54,912 - RuleEngineTest - INFO - [PASS] 规则触发，生成指令: 933cfccc-83f6-42ee-ba9a-26760ae23c9b
+2026-04-25 10:53:54,912 - RuleEngineTest - INFO -   - 指令类型: cooling_on
+2026-04-25 10:53:54,913 - RuleEngineTest - INFO -   - 指令值: auto
+2026-04-25 10:53:54,913 - RuleEngineTest - INFO -   - 状态: pending
+2026-04-25 10:53:54,913 - RuleEngineTest - INFO -   - 触发原因: Auto-triggered by rule: 高温自动制冷
+2026-04-25 10:53:54,913 - RuleEngineTest - INFO - [Step 3: PASS] 45°C 触发规则，指令生成成功
+2026-04-25 10:53:54,913 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,913 - RuleEngineTest - INFO - [Step 4] 验证指令表中存在对应指令
+2026-04-25 10:53:54,914 - RuleEngineTest - INFO - [Step 4: PASS] 指令表验证成功，指令 ID: 933cfccc-83f6-42ee-ba9a-26760ae23c9b
+2026-04-25 10:53:54,914 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,915 - RuleEngineTest - INFO - [Step 5] 验证设备 pending_commands 已更新
+2026-04-25 10:53:54,915 - RuleEngineTest - INFO - [Step 5: PASS] 设备 pending_commands 已更新，待处理指令数: 1
+2026-04-25 10:53:54,915 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,915 - RuleEngineTest - INFO - [Step 6] 验证规则触发次数已更新
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - [Step 6: PASS] 规则触发次数: 1，最后触发时间: 2026-04-25 02:53:54.903487
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - [TEST CASE 3: PASS] 温度规则触发测试成功!
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - 测试结论: 当温控器温度 > 40°C 时，自动下发冷气开启指令
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - 验证结果: 指令表中已自动生成对应指令 ✓
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - 
+============================================================
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - TEST CASE 4: Notify Action Test
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,917 - RuleEngineTest - INFO - Creating test device: TEST_RULE_1777085634
+2026-04-25 10:53:54,948 - RuleEngineTest - INFO - Test device created: TEST_RULE_1777085634, model: Thermostat-X1
+2026-04-25 10:53:54,948 - RuleEngineTest - INFO - [Step 1] 创建规则: 湿度 < 30% 时发送通知
+2026-04-25 10:53:54,955 - RuleEngineTest - INFO - [CreateRule] Created rule: 低湿度告警
+2026-04-25 10:53:54,955 - RuleEngineTest - INFO -   - Metric: humidity < 30.0
+2026-04-25 10:53:54,955 - RuleEngineTest - INFO -   - Action: notify
+2026-04-25 10:53:54,955 - RuleEngineTest - INFO - [Step 1: PASS] 规则创建成功
+2026-04-25 10:53:54,955 - RuleEngineTest - INFO - 
+2026-04-25 10:53:54,957 - RuleEngineTest - INFO - [Step 2] 上报湿度 25% (低于阈值，应触发规则)
+2026-04-25 10:53:54,958 - RuleEngineTest - INFO - [RuleEngine] Rule '低湿度告警' matched for device TEST_RULE_1777085634: humidity=25.0 < 30.0
+2026-04-25 10:53:54,966 - RuleEngineTest - INFO - [Step 2: PASS] 规则触发成功，触发次数: 1
+2026-04-25 10:53:54,966 - RuleEngineTest - INFO - [INFO] NOTIFY 动作会在实际运行时打印告警日志并推送到 WebSocket 前端
+2026-04-25 10:53:54,966 - RuleEngineTest - INFO - 
+[TEST CASE 4: PASS] Notify action test completed!
+2026-04-25 10:53:54,966 - RuleEngineTest - INFO - 
+============================================================
+2026-04-25 10:53:54,966 - RuleEngineTest - INFO - TEST CASE 5: Multiple Rules Test
+2026-04-25 10:53:54,966 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:54,966 - RuleEngineTest - INFO - Creating test device: TEST_RULE_1777085634
+2026-04-25 10:53:54,990 - RuleEngineTest - INFO - Test device created: TEST_RULE_1777085634, model: Thermostat-X1
+2026-04-25 10:53:54,990 - RuleEngineTest - INFO - [Step 1] 创建多条规则
+2026-04-25 10:53:54,998 - RuleEngineTest - INFO - [CreateRule] Created rule: 高温告警
+2026-04-25 10:53:54,998 - RuleEngineTest - INFO -   - Metric: temperature > 40.0
+2026-04-25 10:53:54,998 - RuleEngineTest - INFO -   - Action: send_command
+2026-04-25 10:53:54,998 - RuleEngineTest - INFO -   - Command: cooling_on = high
+2026-04-25 10:53:55,006 - RuleEngineTest - INFO - [CreateRule] Created rule: 极高温告警
+2026-04-25 10:53:55,006 - RuleEngineTest - INFO -   - Metric: temperature > 50.0
+2026-04-25 10:53:55,006 - RuleEngineTest - INFO -   - Action: send_command
+2026-04-25 10:53:55,006 - RuleEngineTest - INFO -   - Command: emergency_cool = max
+2026-04-25 10:53:55,006 - RuleEngineTest - INFO - [Step 1: PASS] 2 条规则创建成功
+2026-04-25 10:53:55,006 - RuleEngineTest - INFO - 
+2026-04-25 10:53:55,007 - RuleEngineTest - INFO - [Step 2] 上报温度 45°C (应触发第1条规则)
+2026-04-25 10:53:55,008 - RuleEngineTest - INFO - [RuleEngine] Rule '高温告警' matched for device TEST_RULE_1777085634: temperature=45.0 > 40.0
+2026-04-25 10:53:55,016 - RuleEngineTest - INFO - [RuleEngine] Created command 'cooling_on' for device TEST_RULE_1777085634 (id=9c2aa7c3-789d-4db2-a594-574b27947d6f)
+2026-04-25 10:53:55,025 - RuleEngineTest - INFO - [Step 2: PASS] 触发 1 条规则: cooling_on
+2026-04-25 10:53:55,025 - RuleEngineTest - INFO - 
+2026-04-25 10:53:55,025 - RuleEngineTest - INFO - [Step 3] 上报温度 55°C (应触发2条规则)
+2026-04-25 10:53:55,026 - RuleEngineTest - INFO - [RuleEngine] Rule '高温告警' matched for device TEST_RULE_1777085634: temperature=55.0 > 40.0
+2026-04-25 10:53:55,034 - RuleEngineTest - INFO - [RuleEngine] Created command 'cooling_on' for device TEST_RULE_1777085634 (id=4cf9fbe5-c9d9-45c3-be53-3e936067a675)
+2026-04-25 10:53:55,044 - RuleEngineTest - INFO - [RuleEngine] Rule '极高温告警' matched for device TEST_RULE_1777085634: temperature=55.0 > 50.0
+2026-04-25 10:53:55,052 - RuleEngineTest - INFO - [RuleEngine] Created command 'emergency_cool' for device TEST_RULE_1777085634 (id=e3779ab7-1ee1-4b3c-9f3e-64bd778ef752)
+2026-04-25 10:53:55,060 - RuleEngineTest - INFO - [Step 3: PASS] 触发 2 条规则: ['cooling_on', 'emergency_cool']
+2026-04-25 10:53:55,061 - RuleEngineTest - INFO - [INFO] 指令表中共有 3 条指令
+2026-04-25 10:53:55,061 - RuleEngineTest - INFO - 
+[TEST CASE 5: PASS] Multiple rules test completed!
+2026-04-25 10:53:55,061 - RuleEngineTest - INFO - 
+============================================================
+2026-04-25 10:53:55,061 - RuleEngineTest - INFO - TEST CASE 6: Inactive Rule Test
+2026-04-25 10:53:55,061 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:55,061 - RuleEngineTest - INFO - Creating test device: TEST_RULE_1777085634
+2026-04-25 10:53:55,091 - RuleEngineTest - INFO - Test device created: TEST_RULE_1777085634, model: Thermostat-X1
+2026-04-25 10:53:55,091 - RuleEngineTest - INFO - [Step 1] 创建规则并设置为非活跃状态
+2026-04-25 10:53:55,100 - RuleEngineTest - INFO - [CreateRule] Created rule: 测试非活跃规则
+2026-04-25 10:53:55,100 - RuleEngineTest - INFO -   - Metric: temperature > 40.0
+2026-04-25 10:53:55,100 - RuleEngineTest - INFO -   - Action: send_command
+2026-04-25 10:53:55,101 - RuleEngineTest - INFO -   - Command: test_cmd = test
+2026-04-25 10:53:55,108 - RuleEngineTest - INFO - [Step 1: PASS] 规则创建并设置为非活跃状态
+2026-04-25 10:53:55,108 - RuleEngineTest - INFO - 
+2026-04-25 10:53:55,108 - RuleEngineTest - INFO - [Step 2] 上报温度 45°C (非活跃规则不应触发)
+2026-04-25 10:53:55,108 - RuleEngineTest - DEBUG - [RuleEngine] No active rules for device TEST_RULE_1777085634
+2026-04-25 10:53:55,109 - RuleEngineTest - INFO - [Step 2: PASS] 非活跃规则未触发，指令数量: 0
+2026-04-25 10:53:55,109 - RuleEngineTest - INFO - 
+2026-04-25 10:53:55,109 - RuleEngineTest - INFO - [Step 3] 激活规则后再次测试
+2026-04-25 10:53:55,119 - RuleEngineTest - INFO - [RuleEngine] Rule '测试非活跃规则' matched for device TEST_RULE_1777085634: temperature=45.0 > 40.0
+2026-04-25 10:53:55,127 - RuleEngineTest - INFO - [RuleEngine] Created command 'test_cmd' for device TEST_RULE_1777085634 (id=11b6dc86-8008-49d7-b522-520c10f7efb3)
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - [Step 3: PASS] 激活后规则触发成功
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - 
+[TEST CASE 6: PASS] Inactive rule test completed!
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - 
+============================================================
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - TEST SUMMARY
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - ============================================================
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   PASS: Test Case 1: Rule Creation
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   PASS: Test Case 2: Rule Engine Evaluation
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   PASS: Test Case 3: Temperature Rule Trigger (MAIN TEST)
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   PASS: Test Case 4: Notify Action
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   PASS: Test Case 5: Multiple Rules
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   PASS: Test Case 6: Inactive Rule
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - 
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - Total: 6 tests
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - Passed: 6
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - Failed: 0
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - 
+[ALL TESTS PASSED] Rule engine mechanism is working correctly!
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - 
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO - 核心测试验证:
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   ✓ Rule 模型正确创建
+2026-04-25 10:53:55,135 - RuleEngineTest - INFO -   ✓ 规则引擎操作符评估正确
+2026-04-25 10:53:55,137 - RuleEngineTest - INFO -   ✓ 温度 > 40°C 时自动下发冷气开启指令
+2026-04-25 10:53:55,137 - RuleEngineTest - INFO -   ✓ 指令表中自动生成对应指令
+2026-04-25 10:53:55,137 - RuleEngineTest - INFO -   ✓ 设备 pending_commands 已更新
+2026-04-25 10:53:55,137 - RuleEngineTest - INFO -   ✓ 规则触发次数已记录

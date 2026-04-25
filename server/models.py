@@ -278,3 +278,41 @@ class DeviceCommand(Base):
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
     
     device = relationship("Device")
+
+class RuleAction(enum.Enum):
+    SEND_COMMAND = "send_command"
+    NOTIFY = "notify"
+
+class RuleOperator(enum.Enum):
+    GT = ">"
+    LT = "<"
+    EQ = "=="
+    GE = ">="
+    LE = "<="
+    NE = "!="
+
+class Rule(Base):
+    __tablename__ = "rules"
+    
+    id = Column(String(36), primary_key=True, index=True)
+    rule_name = Column(String(255), nullable=False, index=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
+    
+    metric = Column(String(64), nullable=False)
+    operator = Column(Enum(RuleOperator), nullable=False)
+    threshold = Column(Float, nullable=False)
+    
+    action = Column(Enum(RuleAction), nullable=False)
+    
+    command_type = Column(String(64), nullable=True)
+    command_value = Column(String(255), nullable=True)
+    
+    is_active = Column(Boolean, default=True, index=True)
+    description = Column(String(500), nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    triggered_at = Column(DateTime, nullable=True)
+    trigger_count = Column(Integer, default=0)
+    
+    device = relationship("Device")
