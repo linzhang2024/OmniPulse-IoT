@@ -1,0 +1,138 @@
+2026-04-25 11:19:42,847 - RuleEngineV3Test - INFO - 
+============================================================
+2026-04-25 11:19:42,847 - RuleEngineV3Test - INFO - RULE ENGINE V3 TEST SUITE
+2026-04-25 11:19:42,848 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:42,848 - RuleEngineV3Test - INFO - 
+2026-04-25 11:19:42,848 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:42,848 - RuleEngineV3Test - INFO - TEST CASE 1: Alert Severity Levels
+2026-04-25 11:19:42,848 - RuleEngineV3Test - INFO -   critical(紧急), warning(重要), info(提示)
+2026-04-25 11:19:42,848 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:42,897 - RuleEngineV3Test - INFO - Test device created: TEST_V3_1777087182, model: MultiSensor-X2
+2026-04-25 11:19:42,897 - RuleEngineV3Test - INFO - [Step 1] Creating rules with different severities
+2026-04-25 11:19:42,929 - RuleEngineV3Test - INFO - [CreateRule] Created: Critical: High Temperature
+2026-04-25 11:19:42,929 - RuleEngineV3Test - INFO -   - Type: simple, Severity: critical
+2026-04-25 11:19:42,929 - RuleEngineV3Test - INFO -   - Condition: temperature > 80.0
+2026-04-25 11:19:42,966 - RuleEngineV3Test - INFO - [CreateRule] Created: Warning: Medium Temperature
+2026-04-25 11:19:42,966 - RuleEngineV3Test - INFO -   - Type: simple, Severity: warning
+2026-04-25 11:19:42,966 - RuleEngineV3Test - INFO -   - Condition: temperature > 50.0
+2026-04-25 11:19:42,996 - RuleEngineV3Test - INFO - [CreateRule] Created: Info: Normal Temperature
+2026-04-25 11:19:42,996 - RuleEngineV3Test - INFO -   - Type: simple, Severity: info
+2026-04-25 11:19:42,996 - RuleEngineV3Test - INFO -   - Condition: temperature > 30.0
+2026-04-25 11:19:42,996 - RuleEngineV3Test - INFO - [Step 2] Testing 35°C (should trigger only INFO)
+2026-04-25 11:19:43,048 - RuleEngineV3Test - WARNING - Rule triggered: Info: Normal Temperature (device=TEST_V3_1777087182, severity=info)
+2026-04-25 11:19:43,048 - RuleEngineV3Test - INFO - [Step 2: PASS] Triggered INFO alert: 3e884292-439a-4d4e-909a-3701f38964d4
+2026-04-25 11:19:43,048 - RuleEngineV3Test - INFO - [Step 3] Testing 60°C (should trigger INFO + WARNING)
+2026-04-25 11:19:43,104 - RuleEngineV3Test - WARNING - Rule triggered: Warning: Medium Temperature (device=TEST_V3_1777087182, severity=warning)
+2026-04-25 11:19:43,131 - RuleEngineV3Test - WARNING - Rule triggered: Info: Normal Temperature (device=TEST_V3_1777087182, severity=info)
+2026-04-25 11:19:43,131 - RuleEngineV3Test - INFO - [Step 3: PASS] Triggered 2 alerts with severities: ['info', 'warning']
+2026-04-25 11:19:43,131 - RuleEngineV3Test - INFO - [Step 4] Testing 90°C (should trigger all 3)
+2026-04-25 11:19:43,193 - RuleEngineV3Test - WARNING - Rule triggered: Critical: High Temperature (device=TEST_V3_1777087182, severity=critical)
+2026-04-25 11:19:43,266 - RuleEngineV3Test - WARNING - Rule triggered: Warning: Medium Temperature (device=TEST_V3_1777087182, severity=warning)
+2026-04-25 11:19:43,293 - RuleEngineV3Test - WARNING - Rule triggered: Info: Normal Temperature (device=TEST_V3_1777087182, severity=info)
+2026-04-25 11:19:43,294 - RuleEngineV3Test - INFO - [Step 4: PASS] Triggered 3 alerts with all severities
+2026-04-25 11:19:43,294 - RuleEngineV3Test - INFO - 
+[TEST CASE 1: PASS]
+2026-04-25 11:19:43,294 - RuleEngineV3Test - INFO - 
+============================================================
+2026-04-25 11:19:43,294 - RuleEngineV3Test - INFO - TEST CASE 2: Alert Status Flow
+2026-04-25 11:19:43,294 - RuleEngineV3Test - INFO -   OPEN -> ACKNOWLEDGED -> RESOLVED
+2026-04-25 11:19:43,294 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:43,417 - RuleEngineV3Test - INFO - Test device created: TEST_V3_1777087182, model: MultiSensor-X2
+2026-04-25 11:19:43,445 - RuleEngineV3Test - INFO - [CreateRule] Created: Test Alert Flow
+2026-04-25 11:19:43,446 - RuleEngineV3Test - INFO -   - Type: simple, Severity: warning
+2026-04-25 11:19:43,446 - RuleEngineV3Test - INFO -   - Condition: temperature > 50.0
+2026-04-25 11:19:43,446 - RuleEngineV3Test - INFO - [Step 1] Trigger alert and check initial status
+2026-04-25 11:19:43,476 - RuleEngineV3Test - WARNING - Rule triggered: Test Alert Flow (device=TEST_V3_1777087182, severity=warning)
+2026-04-25 11:19:43,477 - RuleEngineV3Test - INFO - [Step 1: PASS] Alert status is OPEN: 07e6c6eb-5b93-4b9a-be55-05f8572c67bd
+2026-04-25 11:19:43,477 - RuleEngineV3Test - INFO - [Step 2] Acknowledge alert
+2026-04-25 11:19:43,506 - RuleEngineV3Test - INFO - [Step 2: PASS] Alert acknowledged by user_123
+2026-04-25 11:19:43,506 - RuleEngineV3Test - INFO - [Step 3] Resolve alert
+2026-04-25 11:19:43,581 - RuleEngineV3Test - INFO - [Step 3: PASS] Alert resolved by user_456
+2026-04-25 11:19:43,581 - RuleEngineV3Test - INFO - [Step 4] Query from database
+2026-04-25 11:19:43,582 - RuleEngineV3Test - INFO - [Step 4: PASS] Alert retrieved from DB correctly
+2026-04-25 11:19:43,582 - RuleEngineV3Test - INFO - 
+[TEST CASE 2: PASS]
+2026-04-25 11:19:43,582 - RuleEngineV3Test - INFO - 
+============================================================
+2026-04-25 11:19:43,582 - RuleEngineV3Test - INFO - TEST CASE 3: Silence / Storm Suppression
+2026-04-25 11:19:43,582 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:43,724 - RuleEngineV3Test - INFO - Test device created: TEST_V3_1777087182, model: MultiSensor-X2
+2026-04-25 11:19:43,751 - RuleEngineV3Test - INFO - [CreateRule] Created: Silence Test Rule
+2026-04-25 11:19:43,751 - RuleEngineV3Test - INFO -   - Type: simple, Severity: warning
+2026-04-25 11:19:43,751 - RuleEngineV3Test - INFO -   - Condition: temperature > 50.0
+2026-04-25 11:19:43,751 - RuleEngineV3Test - INFO - [Step 1] First trigger
+2026-04-25 11:19:43,784 - RuleEngineV3Test - WARNING - Rule triggered: Silence Test Rule (device=TEST_V3_1777087182, severity=warning)
+2026-04-25 11:19:43,784 - RuleEngineV3Test - INFO - [Step 1: PASS] First alert created: 86d0a9a5-7a14-49c0-918a-01a289a9eaef
+2026-04-25 11:19:43,785 - RuleEngineV3Test - INFO - [Step 2] Immediate re-trigger (should be silenced)
+2026-04-25 11:19:43,785 - RuleEngineV3Test - DEBUG - Rule Silence Test Rule in silence period, skipped
+2026-04-25 11:19:43,785 - RuleEngineV3Test - INFO - [Step 2: PASS] Silence period prevented re-trigger
+2026-04-25 11:19:43,785 - RuleEngineV3Test - INFO - [Step 3] Simulate silence expired
+2026-04-25 11:19:43,847 - RuleEngineV3Test - WARNING - Rule triggered: Silence Test Rule (device=TEST_V3_1777087182, severity=warning)
+2026-04-25 11:19:43,849 - RuleEngineV3Test - INFO - [Step 3: PASS] After silence expired, new alert created: f67d7eb8-e4f3-4565-9421-0385e44e4fb0
+2026-04-25 11:19:43,849 - RuleEngineV3Test - INFO - 
+[TEST CASE 3: PASS]
+2026-04-25 11:19:43,849 - RuleEngineV3Test - INFO - 
+============================================================
+2026-04-25 11:19:43,849 - RuleEngineV3Test - INFO - TEST CASE 4: Compound Conditions (A > 10 AND B < 20)
+2026-04-25 11:19:43,849 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:44,052 - RuleEngineV3Test - INFO - Test device created: TEST_V3_1777087182, model: MultiSensor-X2
+2026-04-25 11:19:44,086 - RuleEngineV3Test - INFO - [CreateRule] Created: Compound AND: High Temp + Low Humidity
+2026-04-25 11:19:44,086 - RuleEngineV3Test - INFO -   - Type: compound, Severity: warning
+2026-04-25 11:19:44,086 - RuleEngineV3Test - INFO -   - Conditions: [{'metric': 'temperature', 'operator': '>', 'threshold': 40.0, 'logic': 'and'}, {'metric': 'humidity', 'operator': '<', 'threshold': 30.0, 'logic': 'and'}]
+2026-04-25 11:19:44,086 - RuleEngineV3Test - INFO - [Step 1] temp=45, humidity=50 (AND: humidity fails)
+2026-04-25 11:19:44,087 - RuleEngineV3Test - INFO - [Step 1: PASS] Did not trigger (humidity too high)
+2026-04-25 11:19:44,087 - RuleEngineV3Test - INFO - [Step 2] temp=35, humidity=25 (AND: temp fails)
+2026-04-25 11:19:44,088 - RuleEngineV3Test - INFO - [Step 2: PASS] Did not trigger (temp too low)
+2026-04-25 11:19:44,088 - RuleEngineV3Test - INFO - [Step 3] temp=45, humidity=25 (AND: both pass)
+2026-04-25 11:19:44,119 - RuleEngineV3Test - WARNING - Rule triggered: Compound AND: High Temp + Low Humidity (device=TEST_V3_1777087182, severity=warning)
+2026-04-25 11:19:44,120 - RuleEngineV3Test - INFO - [Step 3: PASS] Triggered with matched_values: {'temperature': 45.0, 'humidity': 25.0}
+2026-04-25 11:19:44,120 - RuleEngineV3Test - INFO - [Step 4] Verify AlertHistory stored in DB
+2026-04-25 11:19:44,121 - RuleEngineV3Test - INFO - [Step 4: PASS] AlertHistory stored correctly in DB
+2026-04-25 11:19:44,121 - RuleEngineV3Test - INFO - 
+[TEST CASE 4: PASS]
+2026-04-25 11:19:44,121 - RuleEngineV3Test - INFO - 
+============================================================
+2026-04-25 11:19:44,121 - RuleEngineV3Test - INFO - TEST CASE 5: Webhook Configuration
+2026-04-25 11:19:44,121 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:44,281 - RuleEngineV3Test - INFO - Test device created: TEST_V3_1777087182, model: MultiSensor-X2
+2026-04-25 11:19:44,317 - RuleEngineV3Test - INFO - [CreateRule] Created: Webhook Test Rule
+2026-04-25 11:19:44,317 - RuleEngineV3Test - INFO -   - Type: simple, Severity: critical
+2026-04-25 11:19:44,317 - RuleEngineV3Test - INFO -   - Condition: temperature > 50.0
+2026-04-25 11:19:44,355 - RuleEngineV3Test - INFO - [Step 1: PASS] Webhook config stored in rule
+2026-04-25 11:19:44,355 - RuleEngineV3Test - INFO - [Step 2] Trigger alert and verify webhook is associated
+2026-04-25 11:19:44,379 - RuleEngineV3Test - WARNING - Rule triggered: Webhook Test Rule (device=TEST_V3_1777087182, severity=critical)
+2026-04-25 11:19:44,379 - RuleEngineV3Test - INFO - [Step 2: PASS] Alert created with severity=CRITICAL, action=notify
+2026-04-25 11:19:44,381 - RuleEngineV3Test - INFO - [Step 3: PASS] Rule trigger_count updated
+2026-04-25 11:19:44,381 - RuleEngineV3Test - INFO - 
+[TEST CASE 5: PASS]
+2026-04-25 11:19:44,381 - RuleEngineV3Test - INFO - 
+============================================================
+2026-04-25 11:19:44,381 - RuleEngineV3Test - INFO - TEST CASE 6: Alert Stats & Filtering
+2026-04-25 11:19:44,381 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:44,531 - RuleEngineV3Test - INFO - Test device created: TEST_V3_1777087182, model: MultiSensor-X2
+2026-04-25 11:19:44,531 - RuleEngineV3Test - INFO - [Step 1] Creating multiple alerts with different statuses
+2026-04-25 11:19:44,556 - RuleEngineV3Test - INFO - [Step 2] Query different statuses
+2026-04-25 11:19:44,558 - RuleEngineV3Test - INFO - [Step 2a: PASS] Found 1 OPEN alert (CRITICAL)
+2026-04-25 11:19:44,559 - RuleEngineV3Test - INFO - [Step 2b: PASS] Found 1 ACKNOWLEDGED alert (WARNING)
+2026-04-25 11:19:44,559 - RuleEngineV3Test - INFO - [Step 2c: PASS] Found 1 RESOLVED alert (INFO)
+2026-04-25 11:19:44,559 - RuleEngineV3Test - INFO - [Step 3] Query by severity
+2026-04-25 11:19:44,560 - RuleEngineV3Test - INFO - [Step 3a: PASS] Found 1 CRITICAL alert
+2026-04-25 11:19:44,560 - RuleEngineV3Test - INFO - [Step 3b: PASS] Found total 3 alerts
+2026-04-25 11:19:44,560 - RuleEngineV3Test - INFO - 
+[TEST CASE 6: PASS]
+2026-04-25 11:19:44,560 - RuleEngineV3Test - INFO - 
+============================================================
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO - TEST SUMMARY
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO - ============================================================
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO -   [PASS] Test 1: Alert Severity Levels
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO -   [PASS] Test 2: Alert Status Flow
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO -   [PASS] Test 3: Silence Mechanism
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO -   [PASS] Test 4: Compound Conditions
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO -   [PASS] Test 5: Webhook Config
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO -   [PASS] Test 6: Alert Stats & Filtering
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO - 
+2026-04-25 11:19:44,562 - RuleEngineV3Test - INFO - Total: 6 tests
+2026-04-25 11:19:44,563 - RuleEngineV3Test - INFO - Passed: 6
+2026-04-25 11:19:44,563 - RuleEngineV3Test - INFO - Failed: 0
+2026-04-25 11:19:44,563 - RuleEngineV3Test - INFO - 
+2026-04-25 11:19:44,563 - RuleEngineV3Test - INFO - [ALL TESTS PASSED]

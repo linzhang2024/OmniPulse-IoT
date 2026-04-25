@@ -295,6 +295,44 @@ class ConditionType(enum.Enum):
     SIMPLE = "simple"
     COMPOUND = "compound"
 
+class AlertSeverity(enum.Enum):
+    CRITICAL = "critical"
+    WARNING = "warning"
+    INFO = "info"
+
+class AlertStatus(enum.Enum):
+    OPEN = "open"
+    ACKNOWLEDGED = "acknowledged"
+    RESOLVED = "resolved"
+
+class AlertHistory(Base):
+    __tablename__ = "alert_history"
+    
+    id = Column(String(36), primary_key=True, index=True)
+    rule_id = Column(String(36), ForeignKey("rules.id"), nullable=True, index=True)
+    device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
+    
+    rule_name = Column(String(255), nullable=False)
+    severity = Column(Enum(AlertSeverity), default=AlertSeverity.WARNING)
+    status = Column(Enum(AlertStatus), default=AlertStatus.OPEN)
+    
+    matched_values = Column(JSON, nullable=False)
+    action = Column(String(50), nullable=False)
+    action_result = Column(JSON, nullable=True)
+    
+    acknowledged_by = Column(String(64), nullable=True)
+    acknowledged_at = Column(DateTime, nullable=True)
+    resolved_by = Column(String(64), nullable=True)
+    resolved_at = Column(DateTime, nullable=True)
+    
+    note = Column(String(1000), nullable=True)
+    
+    created_at = Column(DateTime, default=datetime.utcnow, index=True)
+    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    device = relationship("Device")
+    rule = relationship("Rule")
+
 class Rule(Base):
     __tablename__ = "rules"
     
@@ -312,6 +350,7 @@ class Rule(Base):
     conditions = Column(JSON, nullable=True)
     
     action = Column(Enum(RuleAction), nullable=False)
+    severity = Column(Enum(AlertSeverity), default=AlertSeverity.WARNING)
     
     command_type = Column(String(64), nullable=True)
     command_value = Column(String(255), nullable=True)

@@ -42,7 +42,8 @@ from .models import (
     DeviceProtocol, ProtocolType, DeviceStatusEvent,
     AuditLog, OperationType, RiskLevel,
     ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType,
-    DeviceCommand, Rule, RuleAction, RuleOperator, ConditionType
+    DeviceCommand, Rule, RuleAction, RuleOperator, ConditionType,
+    AlertSeverity, AlertStatus, AlertHistory
 )
 
 from .report_engine import (
@@ -1854,6 +1855,7 @@ class RuleCreate(BaseModel):
     command_value: str = None
     
     silence_seconds: int = 60
+    severity: str = "warning"
     
     webhook_url: str = None
     webhook_method: str = "POST"
@@ -1863,25 +1865,23 @@ class RuleCreate(BaseModel):
     description: str = None
     is_active: bool = True
 
-MAX_ALERT_HISTORY = 100
-WEBHOOK_TIMEOUT = 5
-WEBHOOK_MAX_RETRIES = 2
+MAX_ALERT_HISTORY = 1000
+WEBHOOK_TIMEOUT = 3
+WEBHOOK_MAX_RETRIES = 3
+WEBHOOK_QUEUE_MAXSIZE = 1000
+WEBHOOK_WORKER_COUNT = 2
 
+_webhook_queue = None
+_webhook_workers = []
+_webhook_running = False
 _alert_history = deque(maxlen=MAX_ALERT_HISTORY)
 _alert_lock = threading.Lock()
+
 _operator_map = {
-    ">": RuleOperator.GT,
-    "<": RuleOperator.LT,
-    "==": RuleOperator.EQ,
-    ">=": RuleOperator.GE,
-    "<=": RuleOperator.LE,
-    "!=": RuleOperator.NE,
-    "gt": RuleOperator.GT,
-    "lt": RuleOperator.LT,
-    "eq": RuleOperator.EQ,
-    "ge": RuleOperator.GE,
-    "le": RuleOperator.LE,
-    "ne": RuleOperator.NE,
+    ">": RuleOperator.GT, "<": RuleOperator.LT, "==": RuleOperator.EQ,
+    ">=": RuleOperator.GE, "<=": RuleOperator.LE, "!=": RuleOperator.NE,
+    "gt": RuleOperator.GT, "lt": RuleOperator.LT, "eq": RuleOperator.EQ,
+    "ge": RuleOperator.GE, "le": RuleOperator.LE, "ne": RuleOperator.NE,
 }
 _operator_funcs = {
     RuleOperator.GT: lambda v, t: v > t,
@@ -1892,11 +1892,13 @@ _operator_funcs = {
     RuleOperator.NE: lambda v, t: v != t,
 }
 _metric_aliases = {
-    "temperature": ["temp"],
-    "humidity": ["hum"],
-    "power": ["pwr"],
-    "voltage": ["volt", "v"],
-    "current": ["amp", "i"],
+    "temperature": ["temp"], "humidity": ["hum"],
+    "power": ["pwr"], "voltage": ["volt", "v"], "current": ["amp", "i"],
+}
+_severity_priority = {
+    AlertSeverity.CRITICAL: 3,
+    AlertSeverity.WARNING: 2,
+    AlertSeverity.INFO: 1,
 }
 
 
@@ -1905,8 +1907,7 @@ def _get_metric(payload: dict, metric: str) -> Optional[float]:
         val = payload[metric]
         if isinstance(val, (int, float)):
             return float(val)
-    aliases = _metric_aliases.get(metric, [])
-    for alias in aliases:
+    for alias in _metric_aliases.get(metric, []):
         if alias in payload:
             val = payload[alias]
             if isinstance(val, (int, float)):
@@ -1914,7 +1915,7 @@ def _get_metric(payload: dict, metric: str) -> Optional[float]:
     return None
 
 
-def _eval_simple(payload: dict, metric: str, op: RuleOperator, threshold: float) -> tuple[bool, Optional[float]]:
+def _eval_simple(payload: dict, metric: str, op: RuleOperator, threshold: float) -> tuple:
     val = _get_metric(payload, metric)
     if val is None:
         return False, None
@@ -1924,13 +1925,13 @@ def _eval_simple(payload: dict, metric: str, op: RuleOperator, threshold: float)
     return func(val, threshold), val
 
 
-def _eval_compound(payload: dict, conditions: list) -> tuple[bool, dict]:
+def _eval_compound(payload: dict, conditions: list) -> tuple:
     if not conditions:
         return False, {}
     
     matched_values = {}
-    result = True
-    logic_op = conditions[0].get("logic", "and") if len(conditions) > 0 else "and"
+    logic_op = conditions[0].get("logic", "and") if conditions else "and"
+    result = True if logic_op == "and" else False
     
     for cond in conditions:
         metric = cond.get("metric")
@@ -1938,10 +1939,14 @@ def _eval_compound(payload: dict, conditions: list) -> tuple[bool, dict]:
         threshold = cond.get("threshold")
         
         if not metric or op_str is None or threshold is None:
+            if logic_op == "and":
+                result = False
             continue
         
         op = _operator_map.get(op_str.lower()) if isinstance(op_str, str) else op_str
         if not op:
+            if logic_op == "and":
+                result = False
             continue
         
         val = _get_metric(payload, metric)
@@ -1963,7 +1968,7 @@ def _eval_compound(payload: dict, conditions: list) -> tuple[bool, dict]:
         
         if logic_op == "and":
             result = result and cond_result
-        elif logic_op == "or":
+        else:
             result = result or cond_result
     
     return result, matched_values
@@ -1977,95 +1982,188 @@ def _check_silence(rule: Rule, now: datetime) -> bool:
     return elapsed < silence_seconds
 
 
-def _build_alert_event(
-    rule: Rule,
-    device: Device,
-    matched_values: dict,
-    action_result: dict
-) -> dict:
-    now = datetime.utcnow()
-    return {
-        "id": str(uuid.uuid4()),
-        "type": "rule_alert",
-        "rule_id": rule.id,
-        "rule_name": rule.rule_name,
-        "device_id": rule.device_id,
-        "device_model": device.model,
-        "matched_values": matched_values,
-        "action": rule.action.value,
-        "action_result": action_result,
-        "triggered_at": now.isoformat(),
-        "timestamp": int(now.timestamp() * 1000)
+def _parse_severity(severity_str: str) -> AlertSeverity:
+    m = {
+        "critical": AlertSeverity.CRITICAL,
+        "warning": AlertSeverity.WARNING,
+        "info": AlertSeverity.INFO,
+        "紧急": AlertSeverity.CRITICAL,
+        "重要": AlertSeverity.WARNING,
+        "提示": AlertSeverity.INFO,
     }
+    return m.get(severity_str.lower(), AlertSeverity.WARNING)
 
 
-def _add_alert_history(alert: dict):
-    with _alert_lock:
-        _alert_history.append(alert)
-
-
-def get_recent_alerts(limit: int = 50) -> list:
-    with _alert_lock:
-        return list(_alert_history)[-limit:]
-
-
-async def _send_webhook(rule: Rule, alert: dict) -> bool:
-    if not rule.webhook_url:
-        return False
-    
+async def _send_webhook_single(task: dict) -> bool:
     try:
         import httpx
     except ImportError:
-        logger.warning(f"[RuleEngine] httpx not installed, webhook skipped for rule {rule.id}")
         return False
     
-    url = rule.webhook_url
-    method = (rule.webhook_method or "POST").upper()
-    headers = rule.webhook_headers or {}
-    headers.setdefault("Content-Type", "application/json")
+    url = task.get("url")
+    method = task.get("method", "POST").upper()
+    headers = task.get("headers", {})
+    body = task.get("body", {})
+    attempt = task.get("attempt", 0)
     
-    if rule.webhook_body_template:
-        body = dict(rule.webhook_body_template)
-        for key, value in alert.items():
-            placeholder = f"{{{key}}}"
-            for bk, bv in body.items():
-                if isinstance(bv, str) and placeholder in bv:
-                    body[bk] = bv.replace(placeholder, str(value) if value is not None else "")
-        body["alert"] = alert
-    else:
-        body = {
-            "event_type": "rule_alert",
-            "rule_id": rule.id,
-            "rule_name": rule.rule_name,
-            "device_id": rule.device_id,
-            "alert": alert,
-            "timestamp": datetime.utcnow().isoformat()
-        }
+    try:
+        async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
+            if method == "GET":
+                resp = await client.get(url, params=body, headers=headers)
+            else:
+                resp = await client.request(method, url, json=body, headers=headers)
+            
+            if 200 <= resp.status_code < 300:
+                logger.info(f"[Webhook] Sent successfully: {url} (attempt {attempt+1})")
+                return True
+            else:
+                logger.warning(f"[Webhook] Failed: {url}, status={resp.status_code}")
+    except Exception as e:
+        logger.warning(f"[Webhook] Error: {url}, error={e}")
     
-    last_error = None
-    for attempt in range(WEBHOOK_MAX_RETRIES + 1):
-        try:
-            async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
-                if method == "GET":
-                    resp = await client.get(url, params=body, headers=headers)
-                else:
-                    resp = await client.request(method, url, json=body, headers=headers)
-                
-                if 200 <= resp.status_code < 300:
-                    logger.info(f"[RuleEngine] Webhook sent successfully for rule {rule.id}, status={resp.status_code}")
-                    return True
-                else:
-                    logger.warning(f"[RuleEngine] Webhook returned non-2xx status {resp.status_code} for rule {rule.id}")
-                    last_error = f"HTTP {resp.status_code}"
-        except Exception as e:
-            last_error = str(e)
-            logger.warning(f"[RuleEngine] Webhook attempt {attempt+1} failed for rule {rule.id}: {e}")
-        
-        if attempt < WEBHOOK_MAX_RETRIES:
-            await asyncio.sleep(0.5 * (attempt + 1))
-    
-    logger.error(f"[RuleEngine] Webhook failed after {WEBHOOK_MAX_RETRIES + 1} attempts for rule {rule.id}: {last_error}")
     return False
+
+
+async def _webhook_worker_loop(queue):
+    global _webhook_running
+    while _webhook_running:
+        try:
+            task = await asyncio.wait_for(
+                queue.get(),
+                timeout=1.0
+            )
+        except asyncio.TimeoutError:
+            continue
+        
+        try:
+            success = await _send_webhook_single(task)
+            if not success:
+                attempt = task.get("attempt", 0)
+                if attempt < WEBHOOK_MAX_RETRIES - 1:
+                    task["attempt"] = attempt + 1
+                    delay = 0.5 * (attempt + 1)
+                    await asyncio.sleep(delay)
+                    await queue.put(task)
+                else:
+                    logger.error(f"[Webhook] Failed permanently after {WEBHOOK_MAX_RETRIES} attempts: {task.get('url')}")
+        except Exception as e:
+            logger.error(f"[Webhook] Worker error: {e}")
+        finally:
+            queue.task_done()
+
+
+def start_webhook_workers():
+    global _webhook_queue, _webhook_workers, _webhook_running
+    
+    if _webhook_running:
+        return
+    
+    _webhook_running = True
+    _webhook_queue = asyncio.Queue(maxsize=WEBHOOK_QUEUE_MAXSIZE)
+    
+    loop = asyncio.get_event_loop()
+    for i in range(WEBHOOK_WORKER_COUNT):
+        task = loop.create_task(_webhook_worker_loop(_webhook_queue))
+        _webhook_workers.append(task)
+    
+    logger.info(f"[Webhook] Started {WEBHOOK_WORKER_COUNT} worker tasks")
+
+
+def stop_webhook_workers():
+    global _webhook_running
+    _webhook_running = False
+    logger.info("[Webhook] Stopping workers...")
+
+
+def _enqueue_webhook(rule: Rule, alert_data: dict):
+    if not rule.webhook_url or not _webhook_queue:
+        return
+    
+    try:
+        headers = dict(rule.webhook_headers or {})
+        headers.setdefault("Content-Type", "application/json")
+        
+        if rule.webhook_body_template:
+            body = dict(rule.webhook_body_template)
+            for key, value in alert_data.items():
+                placeholder = f"{{{key}}}"
+                for bk, bv in body.items():
+                    if isinstance(bv, str) and placeholder in bv:
+                        body[bk] = bv.replace(placeholder, str(value) if value is not None else "")
+            body["alert"] = alert_data
+        else:
+            body = {
+                "event_type": "rule_alert",
+                "rule_id": rule.id,
+                "rule_name": rule.rule_name,
+                "device_id": rule.device_id,
+                "severity": rule.severity.value if rule.severity else "warning",
+                "alert": alert_data,
+                "timestamp": datetime.utcnow().isoformat()
+            }
+        
+        task = {
+            "url": rule.webhook_url,
+            "method": rule.webhook_method or "POST",
+            "headers": headers,
+            "body": body,
+            "attempt": 0,
+            "rule_id": rule.id,
+        }
+        
+        _webhook_queue.put_nowait(task)
+        logger.debug(f"[Webhook] Enqueued for rule {rule.id}")
+    except asyncio.QueueFull:
+        logger.warning(f"[Webhook] Queue full, dropping webhook for rule {rule.id}")
+    except Exception as e:
+        logger.error(f"[Webhook] Enqueue error: {e}")
+
+
+def _build_alert_record(
+    rule: Rule,
+    device: Device,
+    matched_values: dict,
+    action_result: dict,
+    now: datetime
+) -> AlertHistory:
+    return AlertHistory(
+        id=str(uuid.uuid4()),
+        rule_id=rule.id,
+        device_id=rule.device_id,
+        rule_name=rule.rule_name,
+        severity=rule.severity or AlertSeverity.WARNING,
+        status=AlertStatus.OPEN,
+        matched_values=matched_values,
+        action=rule.action.value,
+        action_result=action_result,
+        created_at=now,
+        updated_at=now
+    )
+
+
+def _alert_to_dict(alert: AlertHistory) -> dict:
+    severity_val = alert.severity.value if alert.severity else "warning"
+    priority = _severity_priority.get(alert.severity, 2)
+    
+    return {
+        "id": alert.id,
+        "rule_id": alert.rule_id,
+        "device_id": alert.device_id,
+        "rule_name": alert.rule_name,
+        "severity": severity_val,
+        "severity_priority": priority,
+        "status": alert.status.value if alert.status else "open",
+        "matched_values": alert.matched_values,
+        "action": alert.action,
+        "action_result": alert.action_result,
+        "acknowledged_by": alert.acknowledged_by,
+        "acknowledged_at": alert.acknowledged_at.isoformat() if alert.acknowledged_at else None,
+        "resolved_by": alert.resolved_by,
+        "resolved_at": alert.resolved_at.isoformat() if alert.resolved_at else None,
+        "note": alert.note,
+        "created_at": alert.created_at.isoformat() if alert.created_at else None,
+        "updated_at": alert.updated_at.isoformat() if alert.updated_at else None,
+    }
 
 
 class RuleEngine:
@@ -2091,7 +2189,6 @@ class RuleEngine:
         
         for rule in rules:
             if _check_silence(rule, now):
-                logger.debug(f"[RuleEngine] Rule {rule.id} is in silence period, skipped")
                 continue
             
             is_triggered = False
@@ -2114,23 +2211,30 @@ class RuleEngine:
             rule.trigger_count = (rule.trigger_count or 0) + 1
             db.commit()
             
-            alert = _build_alert_event(rule, device, matched_values, action_result)
-            _add_alert_history(alert)
+            alert_record = _build_alert_record(rule, device, matched_values, action_result, now)
+            db.add(alert_record)
+            db.commit()
+            db.refresh(alert_record)
+            
+            alert_dict = _alert_to_dict(alert_record)
+            
+            with _alert_lock:
+                _alert_history.append(alert_dict)
             
             if self.websocket_manager:
                 await self.websocket_manager.send_to_frontend({
                     "type": "alert_center",
-                    "event": alert
+                    "event": alert_dict
                 })
             
-            if rule.action == RuleAction.NOTIFY and rule.webhook_url:
-                await _send_webhook(rule, alert)
+            if rule.webhook_url:
+                _enqueue_webhook(rule, alert_dict)
             
             triggered_count += 1
-            logger.warning(f"[RuleEngine] Rule triggered: {rule.rule_name} (device={device_id})")
+            logger.warning(f"[RuleEngine] Rule triggered: {rule.rule_name} (device={device_id}, severity={rule.severity.value if rule.severity else 'warning'})")
         
         if triggered_count > 0:
-            logger.info(f"[RuleEngine] Processed {triggered_count} triggered rules for device {device_id}")
+            logger.info(f"[RuleEngine] Processed {triggered_count} rules for device {device_id}")
     
     async def _execute_action(
         self, 
@@ -2146,6 +2250,7 @@ class RuleEngine:
         print(f"  [RULE ALERT] {rule.rule_name}")
         print("="*80)
         print(f"  Device: {rule.device_id}")
+        print(f"  Severity: {rule.severity.value if rule.severity else 'warning'}")
         print(f"  Values: {matched_values}")
         print(f"  Action: {rule.action.value}")
         if rule.action == RuleAction.SEND_COMMAND:
@@ -2647,6 +2752,8 @@ def serialize_rule(rule: Rule) -> dict:
         "conditions": rule.conditions,
         "condition_expr": rule.condition_expr,
         "action": rule.action.value,
+        "severity": rule.severity.value if rule.severity else "warning",
+        "severity_priority": _severity_priority.get(rule.severity, 2),
         "command_type": rule.command_type,
         "command_value": rule.command_value,
         "silence_seconds": rule.silence_seconds,
@@ -2713,6 +2820,8 @@ def create_rule(
     if rule_data.conditions:
         conditions_json = [c.model_dump() for c in rule_data.conditions]
     
+    severity = _parse_severity(rule_data.severity)
+    
     rule = Rule(
         id=str(uuid.uuid4()),
         rule_name=rule_data.rule_name,
@@ -2724,6 +2833,7 @@ def create_rule(
         conditions=conditions_json,
         condition_expr=rule_data.condition_expr,
         action=action,
+        severity=severity,
         command_type=rule_data.command_type,
         command_value=rule_data.command_value,
         silence_seconds=rule_data.silence_seconds or 60,
@@ -2739,7 +2849,7 @@ def create_rule(
     db.commit()
     db.refresh(rule)
     
-    logger.info(f"[RuleEngine] Created rule '{rule.rule_name}' for device {rule.device_id}, type={condition_type.value}")
+    logger.info(f"[RuleEngine] Created rule '{rule.rule_name}' for device {rule.device_id}, type={condition_type.value}, severity={severity.value}")
     
     return serialize_rule(rule)
 
@@ -2832,24 +2942,173 @@ def delete_rule(
 
 @app.get("/alerts")
 def get_alerts(
-    limit: int = Query(50, ge=1, le=200),
+    limit: int = Query(100, ge=1, le=500),
+    offset: int = Query(0, ge=0),
     device_id: str = Query(None),
-    action: str = Query(None),
+    severity: str = Query(None),
+    status: str = Query(None),
     x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
 ):
-    alerts = get_recent_alerts(limit * 2)
+    query = db.query(AlertHistory)
     
     if device_id:
-        alerts = [a for a in alerts if a.get("device_id") == device_id]
+        query = query.filter(AlertHistory.device_id == device_id)
     
-    if action:
-        action_lower = action.lower()
-        alerts = [a for a in alerts if a.get("action") == action_lower]
+    if severity:
+        severity_enum = _parse_severity(severity)
+        query = query.filter(AlertHistory.severity == severity_enum)
+    
+    if status:
+        status_map = {
+            "open": AlertStatus.OPEN,
+            "acknowledged": AlertStatus.ACKNOWLEDGED,
+            "resolved": AlertStatus.RESOLVED,
+        }
+        status_enum = status_map.get(status.lower())
+        if status_enum:
+            query = query.filter(AlertHistory.status == status_enum)
+    
+    total = query.count()
+    
+    alerts = query.order_by(
+        AlertHistory.created_at.desc()
+    ).offset(offset).limit(limit).all()
     
     return {
-        "alerts": alerts[-limit:],
-        "count": len(alerts[-limit:]),
-        "total_available": len(alerts)
+        "alerts": [_alert_to_dict(a) for a in alerts],
+        "total": total,
+        "limit": limit,
+        "offset": offset
+    }
+
+@app.get("/alerts/stats")
+def get_alert_stats(
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    open_count = db.query(AlertHistory).filter(
+        AlertHistory.status == AlertStatus.OPEN
+    ).count()
+    
+    ack_count = db.query(AlertHistory).filter(
+        AlertHistory.status == AlertStatus.ACKNOWLEDGED
+    ).count()
+    
+    resolved_count = db.query(AlertHistory).filter(
+        AlertHistory.status == AlertStatus.RESOLVED
+    ).count()
+    
+    critical_count = db.query(AlertHistory).filter(
+        AlertHistory.severity == AlertSeverity.CRITICAL,
+        AlertHistory.status != AlertStatus.RESOLVED
+    ).count()
+    
+    return {
+        "open": open_count,
+        "acknowledged": ack_count,
+        "resolved": resolved_count,
+        "critical_active": critical_count,
+        "total": open_count + ack_count + resolved_count
+    }
+
+@app.put("/alerts/{alert_id}/acknowledge")
+def acknowledge_alert(
+    alert_id: str,
+    note: str = Query(None),
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    alert = db.query(AlertHistory).filter(AlertHistory.id == alert_id).first()
+    
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail="Alert not found"
+        )
+    
+    now = datetime.utcnow()
+    alert.status = AlertStatus.ACKNOWLEDGED
+    alert.acknowledged_by = x_user_id
+    alert.acknowledged_at = now
+    if note:
+        alert.note = note
+    alert.updated_at = now
+    
+    db.commit()
+    db.refresh(alert)
+    
+    logger.info(f"[AlertCenter] Alert {alert_id} acknowledged by user {x_user_id}")
+    
+    return _alert_to_dict(alert)
+
+@app.put("/alerts/{alert_id}/resolve")
+def resolve_alert(
+    alert_id: str,
+    note: str = Query(None),
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    alert = db.query(AlertHistory).filter(AlertHistory.id == alert_id).first()
+    
+    if not alert:
+        raise HTTPException(
+            status_code=404,
+            detail="Alert not found"
+        )
+    
+    now = datetime.utcnow()
+    alert.status = AlertStatus.RESOLVED
+    alert.resolved_by = x_user_id
+    alert.resolved_at = now
+    if note:
+        alert.note = note
+    alert.updated_at = now
+    
+    db.commit()
+    db.refresh(alert)
+    
+    logger.info(f"[AlertCenter] Alert {alert_id} resolved by user {x_user_id}")
+    
+    return _alert_to_dict(alert)
+
+@app.post("/alerts/batch-acknowledge")
+def batch_acknowledge_alerts(
+    alert_ids: List[str],
+    note: str = Query(None),
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if not alert_ids:
+        raise HTTPException(
+            status_code=400,
+            detail="No alert IDs provided"
+        )
+    
+    now = datetime.utcnow()
+    count = 0
+    
+    for alert_id in alert_ids:
+        alert = db.query(AlertHistory).filter(AlertHistory.id == alert_id).first()
+        if alert and alert.status == AlertStatus.OPEN:
+            alert.status = AlertStatus.ACKNOWLEDGED
+            alert.acknowledged_by = x_user_id
+            alert.acknowledged_at = now
+            if note:
+                alert.note = note
+            alert.updated_at = now
+            count += 1
+    
+    db.commit()
+    
+    logger.info(f"[AlertCenter] Batch acknowledged {count} alerts by user {x_user_id}")
+    
+    return {
+        "message": f"Successfully acknowledged {count} alerts",
+        "acknowledged_count": count,
+        "total_requested": len(alert_ids)
     }
 
 @app.delete("/alerts")
@@ -2860,13 +3119,17 @@ def clear_alerts(
     if x_user_id:
         require_staff_or_admin(x_user_id, db)
     
+    count = db.query(AlertHistory).delete()
+    db.commit()
+    
     with _alert_lock:
         _alert_history.clear()
     
-    logger.info(f"[AlertCenter] Alert history cleared by user {x_user_id}")
+    logger.info(f"[AlertCenter] Cleared {count} alerts by user {x_user_id}")
     
     return {
-        "message": "Alert history cleared successfully"
+        "message": "Alert history cleared successfully",
+        "deleted_count": count
     }
 
 @app.put("/rules/{rule_id}")
@@ -2930,6 +3193,8 @@ def update_rule(
     if rule_data.conditions:
         conditions_json = [c.model_dump() for c in rule_data.conditions]
     
+    severity = _parse_severity(rule_data.severity)
+    
     rule.rule_name = rule_data.rule_name
     rule.device_id = rule_data.device_id
     rule.condition_type = condition_type
@@ -2939,6 +3204,7 @@ def update_rule(
     rule.conditions = conditions_json
     rule.condition_expr = rule_data.condition_expr
     rule.action = action
+    rule.severity = severity
     rule.command_type = rule_data.command_type
     rule.command_value = rule_data.command_value
     rule.silence_seconds = rule_data.silence_seconds or 60
@@ -2953,7 +3219,7 @@ def update_rule(
     db.commit()
     db.refresh(rule)
     
-    logger.info(f"[RuleEngine] Updated rule '{rule.rule_name}' (id={rule_id})")
+    logger.info(f"[RuleEngine] Updated rule '{rule.rule_name}' (id={rule_id}, severity={severity.value})")
     
     return serialize_rule(rule)
 
