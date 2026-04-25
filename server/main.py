@@ -42,7 +42,7 @@ from .models import (
     DeviceProtocol, ProtocolType, DeviceStatusEvent,
     AuditLog, OperationType, RiskLevel,
     ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType,
-    DeviceCommand
+    DeviceCommand, Rule, RuleAction, RuleOperator
 )
 
 from .report_engine import (
@@ -1830,6 +1830,180 @@ class CommandAck(BaseModel):
     error_message: str = None
     client_msg_id: str = None
 
+class RuleCreate(BaseModel):
+    rule_name: str
+    device_id: str
+    metric: str
+    operator: str
+    threshold: float
+    action: str
+    command_type: str = None
+    command_value: str = None
+    description: str = None
+    is_active: bool = True
+
+class RuleEngine:
+    def __init__(self, websocket_manager: WebSocketConnectionManager = None):
+        self.websocket_manager = websocket_manager
+    
+    def evaluate_operator(self, value: float, operator: RuleOperator, threshold: float) -> bool:
+        if operator == RuleOperator.GT:
+            return value > threshold
+        elif operator == RuleOperator.LT:
+            return value < threshold
+        elif operator == RuleOperator.EQ:
+            return value == threshold
+        elif operator == RuleOperator.GE:
+            return value >= threshold
+        elif operator == RuleOperator.LE:
+            return value <= threshold
+        elif operator == RuleOperator.NE:
+            return value != threshold
+        return False
+    
+    def get_metric_value(self, payload: dict, metric: str) -> Optional[float]:
+        if metric in payload:
+            value = payload[metric]
+            if isinstance(value, (int, float)):
+                return float(value)
+        if metric == "temperature" and "temp" in payload:
+            value = payload["temp"]
+            if isinstance(value, (int, float)):
+                return float(value)
+        if metric == "humidity" and "hum" in payload:
+            value = payload["hum"]
+            if isinstance(value, (int, float)):
+                return float(value)
+        return None
+    
+    def _print_alert_banner(self, rule: Rule, value: float):
+        print("\n" + "="*80)
+        print(f"  [RULE ALERT] 规则触发: {rule.rule_name}")
+        print("="*80)
+        print(f"  设备 ID: {rule.device_id}")
+        print(f"  监控指标: {rule.metric}")
+        print(f"  当前值: {value}")
+        print(f"  条件: {rule.metric} {rule.operator.value} {rule.threshold}")
+        print(f"  触发动作: {rule.action.value}")
+        if rule.action == RuleAction.SEND_COMMAND:
+            print(f"  下发指令: {rule.command_type} = {rule.command_value}")
+        print("="*80 + "\n")
+        logger.warning(f"[RuleEngine] Rule '{rule.rule_name}' triggered for device {rule.device_id}: {rule.metric}={value} {rule.operator.value} {rule.threshold}")
+    
+    async def execute_action(self, rule: Rule, device: Device, value: float, db: Session):
+        self._print_alert_banner(rule, value)
+        
+        if rule.action == RuleAction.SEND_COMMAND:
+            await self._execute_send_command(rule, device, db)
+        elif rule.action == RuleAction.NOTIFY:
+            await self._execute_notify(rule, device, value, db)
+        
+        rule.triggered_at = datetime.utcnow()
+        rule.trigger_count = (rule.trigger_count or 0) + 1
+        db.commit()
+    
+    async def _execute_send_command(self, rule: Rule, device: Device, db: Session):
+        if not rule.command_type:
+            logger.error(f"[RuleEngine] Rule '{rule.rule_name}' has action SEND_COMMAND but no command_type specified")
+            return
+        
+        now = datetime.utcnow()
+        expires_at = now + timedelta(seconds=COMMAND_TTL_SECONDS)
+        
+        command = DeviceCommand(
+            id=str(uuid.uuid4()),
+            device_id=rule.device_id,
+            command_type=rule.command_type,
+            command_value=rule.command_value,
+            status=CommandStatus.PENDING,
+            ttl_seconds=COMMAND_TTL_SECONDS,
+            expires_at=expires_at,
+            reason=f"Auto-triggered by rule: {rule.rule_name}",
+            source="rule_engine"
+        )
+        db.add(command)
+        
+        if device.pending_commands is None:
+            device.pending_commands = []
+        
+        pending_command = {
+            "id": command.id,
+            "command": rule.command_type,
+            "value": rule.command_value,
+            "status": CommandStatus.PENDING.value,
+            "created_at": now.isoformat(),
+            "delivered_at": None,
+            "reason": command.reason
+        }
+        device.pending_commands.append(pending_command)
+        
+        db.commit()
+        
+        logger.info(f"[RuleEngine] Created command '{rule.command_type}' for device {rule.device_id} (id={command.id})")
+        
+        if self.websocket_manager:
+            await self.websocket_manager.send_to_device(
+                rule.device_id,
+                {
+                    "type": "new_command",
+                    "command_id": command.id,
+                    "command": rule.command_type,
+                    "value": rule.command_value
+                }
+            )
+    
+    async def _execute_notify(self, rule: Rule, device: Device, value: float, db: Session):
+        notification = {
+            "type": "rule_alert",
+            "rule_id": rule.id,
+            "rule_name": rule.rule_name,
+            "device_id": rule.device_id,
+            "metric": rule.metric,
+            "value": value,
+            "operator": rule.operator.value,
+            "threshold": rule.threshold,
+            "triggered_at": datetime.utcnow().isoformat()
+        }
+        
+        logger.info(f"[RuleEngine] Sending notification for rule '{rule.rule_name}'")
+        
+        if self.websocket_manager:
+            await self.websocket_manager.send_to_frontend(notification)
+    
+    async def process_device_data(self, device_id: str, payload: dict, db: Session):
+        rules = db.query(Rule).filter(
+            Rule.device_id == device_id,
+            Rule.is_active == True
+        ).all()
+        
+        if not rules:
+            logger.debug(f"[RuleEngine] No active rules for device {device_id}")
+            return
+        
+        device = db.query(Device).filter(Device.device_id == device_id).first()
+        if not device:
+            logger.error(f"[RuleEngine] Device {device_id} not found")
+            return
+        
+        triggered_rules = []
+        
+        for rule in rules:
+            metric_value = self.get_metric_value(payload, rule.metric)
+            
+            if metric_value is None:
+                logger.debug(f"[RuleEngine] Metric '{rule.metric}' not found in payload for device {device_id}")
+                continue
+            
+            if self.evaluate_operator(metric_value, rule.operator, rule.threshold):
+                triggered_rules.append((rule, metric_value))
+                logger.info(f"[RuleEngine] Rule '{rule.rule_name}' matched for device {device_id}: {rule.metric}={metric_value} {rule.operator.value} {rule.threshold}")
+        
+        for rule, value in triggered_rules:
+            await self.execute_action(rule, device, value, db)
+        
+        if triggered_rules:
+            logger.info(f"[RuleEngine] Processed {len(triggered_rules)} triggered rules for device {device_id}")
+
 class WebSocketConnectionManager:
     def __init__(self):
         self.active_connections: Dict[str, Set[WebSocket]] = {}
@@ -1907,6 +2081,7 @@ class WebSocketConnectionManager:
             return device_id in self.active_connections and len(self.active_connections[device_id]) > 0
 
 ws_manager = WebSocketConnectionManager()
+rule_engine = RuleEngine(websocket_manager=ws_manager)
 
 def create_device_command(
     device_id: str,
@@ -2205,6 +2380,203 @@ def update_thresholds(
         "message": "Thresholds updated successfully",
         "old_values": old_values,
         "new_values": new_values
+    }
+
+def parse_operator(operator_str: str) -> RuleOperator:
+    operator_map = {
+        ">": RuleOperator.GT,
+        "<": RuleOperator.LT,
+        "==": RuleOperator.EQ,
+        ">=": RuleOperator.GE,
+        "<=": RuleOperator.LE,
+        "!=": RuleOperator.NE,
+        "gt": RuleOperator.GT,
+        "lt": RuleOperator.LT,
+        "eq": RuleOperator.EQ,
+        "ge": RuleOperator.GE,
+        "le": RuleOperator.LE,
+        "ne": RuleOperator.NE,
+    }
+    op = operator_map.get(operator_str.lower())
+    if op is None:
+        raise ValueError(f"Invalid operator: {operator_str}")
+    return op
+
+def parse_action(action_str: str) -> RuleAction:
+    action_map = {
+        "send_command": RuleAction.SEND_COMMAND,
+        "notify": RuleAction.NOTIFY,
+    }
+    action = action_map.get(action_str.lower())
+    if action is None:
+        raise ValueError(f"Invalid action: {action_str}")
+    return action
+
+def serialize_rule(rule: Rule) -> dict:
+    return {
+        "id": rule.id,
+        "rule_name": rule.rule_name,
+        "device_id": rule.device_id,
+        "metric": rule.metric,
+        "operator": rule.operator.value,
+        "threshold": rule.threshold,
+        "action": rule.action.value,
+        "command_type": rule.command_type,
+        "command_value": rule.command_value,
+        "is_active": rule.is_active,
+        "description": rule.description,
+        "created_at": rule.created_at.isoformat() if rule.created_at else None,
+        "updated_at": rule.updated_at.isoformat() if rule.updated_at else None,
+        "triggered_at": rule.triggered_at.isoformat() if rule.triggered_at else None,
+        "trigger_count": rule.trigger_count or 0
+    }
+
+@app.post("/rules")
+def create_rule(
+    rule_data: RuleCreate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    device = db.query(Device).filter(
+        Device.device_id == rule_data.device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Device {rule_data.device_id} not found"
+        )
+    
+    try:
+        operator = parse_operator(rule_data.operator)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    
+    try:
+        action = parse_action(rule_data.action)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    
+    if action == RuleAction.SEND_COMMAND and not rule_data.command_type:
+        raise HTTPException(
+            status_code=400,
+            detail="command_type is required when action is SEND_COMMAND"
+        )
+    
+    rule = Rule(
+        id=str(uuid.uuid4()),
+        rule_name=rule_data.rule_name,
+        device_id=rule_data.device_id,
+        metric=rule_data.metric,
+        operator=operator,
+        threshold=rule_data.threshold,
+        action=action,
+        command_type=rule_data.command_type,
+        command_value=rule_data.command_value,
+        is_active=rule_data.is_active,
+        description=rule_data.description
+    )
+    
+    db.add(rule)
+    db.commit()
+    db.refresh(rule)
+    
+    logger.info(f"[RuleEngine] Created rule '{rule.rule_name}' for device {rule.device_id}")
+    
+    return serialize_rule(rule)
+
+@app.get("/rules")
+def get_rules(
+    device_id: str = Query(None),
+    is_active: bool = Query(None),
+    db: Session = Depends(get_db)
+):
+    query = db.query(Rule)
+    
+    if device_id:
+        query = query.filter(Rule.device_id == device_id)
+    
+    if is_active is not None:
+        query = query.filter(Rule.is_active == is_active)
+    
+    rules = query.order_by(Rule.created_at.desc()).all()
+    
+    return {
+        "rules": [serialize_rule(rule) for rule in rules],
+        "count": len(rules)
+    }
+
+@app.get("/rules/{rule_id}")
+def get_rule(
+    rule_id: str,
+    db: Session = Depends(get_db)
+):
+    rule = db.query(Rule).filter(Rule.id == rule_id).first()
+    
+    if not rule:
+        raise HTTPException(
+            status_code=404,
+            detail="Rule not found"
+        )
+    
+    return serialize_rule(rule)
+
+@app.put("/rules/{rule_id}/activate")
+def toggle_rule_active(
+    rule_id: str,
+    is_active: bool = Query(True),
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    rule = db.query(Rule).filter(Rule.id == rule_id).first()
+    
+    if not rule:
+        raise HTTPException(
+            status_code=404,
+            detail="Rule not found"
+        )
+    
+    rule.is_active = is_active
+    db.commit()
+    db.refresh(rule)
+    
+    logger.info(f"[RuleEngine] Rule '{rule.rule_name}' set to {'active' if is_active else 'inactive'}")
+    
+    return serialize_rule(rule)
+
+@app.delete("/rules/{rule_id}")
+def delete_rule(
+    rule_id: str,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    rule = db.query(Rule).filter(Rule.id == rule_id).first()
+    
+    if not rule:
+        raise HTTPException(
+            status_code=404,
+            detail="Rule not found"
+        )
+    
+    rule_name = rule.rule_name
+    db.delete(rule)
+    db.commit()
+    
+    logger.info(f"[RuleEngine] Deleted rule '{rule_name}'")
+    
+    return {
+        "message": "Rule deleted successfully",
+        "rule_id": rule_id,
+        "rule_name": rule_name
     }
 
 @app.delete("/devices/{device_id}/history")
@@ -2919,6 +3291,22 @@ async def report_device_data(
     }
     
     enqueue_data_item(data_item)
+    
+    async def process_rules_async():
+        try:
+            rule_db = SessionLocal()
+            try:
+                await rule_engine.process_device_data(
+                    data_report.device_id,
+                    payload,
+                    rule_db
+                )
+            finally:
+                rule_db.close()
+        except Exception as e:
+            logger.error(f"[RuleEngine] Error processing rules for device {data_report.device_id}: {e}")
+    
+    asyncio.create_task(process_rules_async())
     
     queue_size = get_data_queue_size()
     
