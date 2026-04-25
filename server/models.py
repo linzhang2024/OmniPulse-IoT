@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey, JSON, Float, Boolean
+from sqlalchemy import Column, String, Integer, DateTime, Enum, ForeignKey, JSON, Float, Boolean, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.ext.declarative import declarative_base
 import enum
@@ -32,6 +32,12 @@ class Device(Base):
     pending_commands = Column(JSON, default=list)
     created_at = Column(DateTime, default=datetime.utcnow)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+    
+    __table_args__ = (
+        Index('idx_devices_status', 'status'),
+        Index('idx_devices_last_seen', 'last_seen'),
+        Index('idx_devices_status_last_seen', 'status', 'last_seen'),
+    )
     
     data_records = relationship("DeviceData", back_populates="device", cascade="all, delete-orphan")
     status_events = relationship("DeviceStatusEvent", back_populates="device", cascade="all, delete-orphan")

@@ -84,6 +84,8 @@ MAX_DATA_QUEUE_SIZE = int(os.getenv("MAX_DATA_QUEUE_SIZE", "50000"))
 DATA_BATCH_SIZE = int(os.getenv("DATA_BATCH_SIZE", "500"))
 DATA_FLUSH_INTERVAL = float(os.getenv("DATA_FLUSH_INTERVAL", "1.0"))
 
+DEVICE_SCAN_BATCH_SIZE = 100
+
 memory_event_queue = deque(maxlen=MAX_MEMORY_EVENTS)
 memory_event_lock = threading.Lock()
 
@@ -101,6 +103,24 @@ data_stats = {
     "last_flush_time": None
 }
 data_stats_lock = threading.Lock()
+
+device_heartbeat_cache: Dict[str, datetime] = {}
+device_heartbeat_cache_lock = threading.Lock()
+HEARTBEAT_CACHE_TTL = 5
+
+def is_device_active_in_cache(device_id: str) -> bool:
+    with device_heartbeat_cache_lock:
+        if device_id not in device_heartbeat_cache:
+            return False
+        last_seen = device_heartbeat_cache[device_id]
+        elapsed = (datetime.utcnow() - last_seen).total_seconds()
+        return elapsed < PENDING_OFFLINE_THRESHOLD
+
+def update_heartbeat_cache(device_id: str, seen_at: datetime = None):
+    if seen_at is None:
+        seen_at = datetime.utcnow()
+    with device_heartbeat_cache_lock:
+        device_heartbeat_cache[device_id] = seen_at
 
 def get_data_queue_size() -> int:
     with data_queue_lock:
@@ -153,6 +173,12 @@ SET last_heartbeat = ?, last_seen = ?, status = ?, updated_at = CURRENT_TIMESTAM
 WHERE device_id = ?
 """
 
+UPDATE_DEVICE_HEARTBEAT_SQL = """
+UPDATE devices 
+SET last_heartbeat = ?, last_seen = ?, updated_at = CURRENT_TIMESTAMP
+WHERE device_id = ?
+"""
+
 def flush_data_batch(db_session=None):
     batch = dequeue_data_batch(DATA_BATCH_SIZE)
     if not batch:
@@ -196,6 +222,9 @@ def flush_data_batch(db_session=None):
                     "device_id": device_id
                 }
         
+        for device_id in device_updates:
+            update_heartbeat_cache(device_id, device_updates[device_id]["last_seen"])
+        
         connection = db_session.connection()
         
         if device_data_params:
@@ -204,33 +233,44 @@ def flush_data_batch(db_session=None):
         if history_params:
             connection.execute(text(INSERT_DEVICE_HISTORY_SQL), history_params)
         
-        for device_id, update_info in device_updates.items():
-            device = db_session.query(Device).filter(
-                Device.device_id == device_id
-            ).first()
+        if device_updates:
+            device_ids = list(device_updates.keys())
+            offline_devices = db_session.query(Device).filter(
+                Device.device_id.in_(device_ids),
+                Device.status != DeviceStatus.ONLINE
+            ).all()
             
-            if device:
+            offline_device_ids = {d.device_id: d for d in offline_devices}
+            
+            heartbeat_update_params = []
+            for device_id, update_info in device_updates.items():
+                heartbeat_update_params.append((
+                    update_info["last_seen"],
+                    update_info["last_seen"],
+                    device_id
+                ))
+            
+            if heartbeat_update_params:
+                connection.execute(text(UPDATE_DEVICE_HEARTBEAT_SQL), heartbeat_update_params)
+            
+            for device_id, device in offline_device_ids.items():
                 old_status = device.status.value
-                new_status = DeviceStatus.ONLINE.value
+                update_info = device_updates[device_id]
                 
-                device.last_heartbeat = update_info["last_seen"]
-                device.last_seen = update_info["last_seen"]
+                device.status = DeviceStatus.ONLINE
                 
-                if device.status != DeviceStatus.ONLINE:
-                    device.status = DeviceStatus.ONLINE
-                    
-                    try:
-                        record_status_event(
-                            db_session,
-                            device_id,
-                            "online",
-                            old_status=old_status,
-                            new_status=new_status,
-                            reason="Device data reported via queue",
-                            details={"timestamp": update_info["last_seen"].isoformat() if update_info["last_seen"] else None}
-                        )
-                    except Exception as e:
-                        logger.warning(f"[DataQueue] Failed to record status event: {e}")
+                try:
+                    record_status_event(
+                        db_session,
+                        device_id,
+                        "online",
+                        old_status=old_status,
+                        new_status=DeviceStatus.ONLINE.value,
+                        reason="Device data reported via queue",
+                        details={"timestamp": update_info["last_seen"].isoformat() if update_info["last_seen"] else None}
+                    )
+                except Exception as e:
+                    logger.warning(f"[DataQueue] Failed to record status event: {e}")
         
         db_session.commit()
         
@@ -839,130 +879,144 @@ def check_all_devices_status():
     db = SessionLocal()
     try:
         now = datetime.utcnow()
-        
-        active_devices = db.query(Device).filter(
-            Device.status.in_([DeviceStatus.ONLINE, DeviceStatus.PENDING_OFFLINE])
-        ).all()
-        
-        if not active_devices:
-            expired_commands_count = expire_overdue_commands(db, now)
-            if expired_commands_count > 0:
-                db.commit()
-            return
+        pending_offset_threshold = now - timedelta(seconds=PENDING_OFFLINE_THRESHOLD)
+        offline_offset_threshold = now - timedelta(seconds=OFFLINE_THRESHOLD)
         
         updated_count = 0
         pending_count = 0
         offline_count = 0
+        offset = 0
         
-        for device in active_devices:
-            last_active_time = device.last_seen if device.last_seen else device.last_heartbeat
+        while True:
+            batch = db.query(Device).filter(
+                Device.status.in_([DeviceStatus.ONLINE, DeviceStatus.PENDING_OFFLINE])
+            ).order_by(Device.device_id).offset(offset).limit(DEVICE_SCAN_BATCH_SIZE).all()
             
-            if last_active_time is None:
-                continue
+            if not batch:
+                break
             
-            time_since_active = (now - last_active_time).total_seconds()
-            old_status = device.status.value
-            
-            if device.status == DeviceStatus.ONLINE:
-                if time_since_active > PENDING_OFFLINE_THRESHOLD and time_since_active <= OFFLINE_THRESHOLD:
-                    device.status = DeviceStatus.PENDING_OFFLINE
-                    new_status = device.status.value
-                    pending_count += 1
-                    updated_count += 1
-                    
-                    record_status_event(
-                        db,
-                        device.device_id,
-                        "pending_offline",
-                        old_status=old_status,
-                        new_status=new_status,
-                        reason=f"No heartbeat for {time_since_active:.1f} seconds (pending threshold: {PENDING_OFFLINE_THRESHOLD}s)",
-                        details={
-                            "last_active_time": last_active_time.isoformat() if last_active_time else None,
-                            "pending_threshold": PENDING_OFFLINE_THRESHOLD,
-                            "offline_threshold": OFFLINE_THRESHOLD,
-                            "time_since_active": time_since_active
-                        }
-                    )
-                    logger.warning(
-                        f"[DevicePendingOffline] Device {device.device_id} marked as PENDING_OFFLINE. "
-                        f"No activity for {time_since_active:.1f}s. "
-                        f"Will be marked OFFLINE in {OFFLINE_THRESHOLD - time_since_active:.1f}s."
-                    )
+            for device in batch:
+                with device_heartbeat_cache_lock:
+                    cached_time = device_heartbeat_cache.get(device.device_id)
+                    if cached_time and (now - cached_time).total_seconds() < PENDING_OFFLINE_THRESHOLD:
+                        continue
                 
-                elif time_since_active > OFFLINE_THRESHOLD:
-                    device.status = DeviceStatus.OFFLINE
-                    new_status = device.status.value
-                    offline_count += 1
-                    updated_count += 1
+                last_active_time = device.last_seen if device.last_seen else device.last_heartbeat
+                
+                if last_active_time is None:
+                    continue
+                
+                time_since_active = (now - last_active_time).total_seconds()
+                old_status = device.status.value
+                
+                if device.status == DeviceStatus.ONLINE:
+                    if time_since_active > PENDING_OFFLINE_THRESHOLD and time_since_active <= OFFLINE_THRESHOLD:
+                        device.status = DeviceStatus.PENDING_OFFLINE
+                        new_status = device.status.value
+                        pending_count += 1
+                        updated_count += 1
+                        
+                        record_status_event(
+                            db,
+                            device.device_id,
+                            "pending_offline",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason=f"No heartbeat for {time_since_active:.1f} seconds (pending threshold: {PENDING_OFFLINE_THRESHOLD}s)",
+                            details={
+                                "last_active_time": last_active_time.isoformat() if last_active_time else None,
+                                "pending_threshold": PENDING_OFFLINE_THRESHOLD,
+                                "offline_threshold": OFFLINE_THRESHOLD,
+                                "time_since_active": time_since_active
+                            }
+                        )
+                        logger.warning(
+                            f"[DevicePendingOffline] Device {device.device_id} marked as PENDING_OFFLINE. "
+                            f"No activity for {time_since_active:.1f}s. "
+                            f"Will be marked OFFLINE in {OFFLINE_THRESHOLD - time_since_active:.1f}s."
+                        )
                     
-                    record_status_event(
-                        db,
-                        device.device_id,
-                        "offline",
-                        old_status=old_status,
-                        new_status=new_status,
-                        reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {OFFLINE_THRESHOLD}s)",
-                        details={
-                            "last_active_time": last_active_time.isoformat() if last_active_time else None,
-                            "timeout_seconds": OFFLINE_THRESHOLD,
-                            "time_since_active": time_since_active
-                        }
-                    )
-                    
-                    create_offline_alert(db, device, time_since_active, now)
-                    
-                    logger.critical(
-                        f"\n{'='*60}\n"
-                        f"[DEVICE OFFLINE] Device {device.device_id}\n"
-                        f"{'='*60}\n"
-                        f"  Status: {old_status} -> {new_status}\n"
-                        f"  Last Active: {last_active_time}\n"
-                        f"  Inactive For: {time_since_active:.1f}s\n"
-                        f"  Alert: CRITICAL alert created\n"
-                        f"{'='*60}\n"
-                    )
+                    elif time_since_active > OFFLINE_THRESHOLD:
+                        device.status = DeviceStatus.OFFLINE
+                        new_status = device.status.value
+                        offline_count += 1
+                        updated_count += 1
+                        
+                        record_status_event(
+                            db,
+                            device.device_id,
+                            "offline",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {OFFLINE_THRESHOLD}s)",
+                            details={
+                                "last_active_time": last_active_time.isoformat() if last_active_time else None,
+                                "timeout_seconds": OFFLINE_THRESHOLD,
+                                "time_since_active": time_since_active
+                            }
+                        )
+                        
+                        create_offline_alert(db, device, time_since_active, now)
+                        
+                        logger.critical(
+                            f"\n{'='*60}\n"
+                            f"[DEVICE OFFLINE] Device {device.device_id}\n"
+                            f"{'='*60}\n"
+                            f"  Status: {old_status} -> {new_status}\n"
+                            f"  Last Active: {last_active_time}\n"
+                            f"  Inactive For: {time_since_active:.1f}s\n"
+                            f"  Alert: CRITICAL alert created\n"
+                            f"{'='*60}\n"
+                        )
+                
+                elif device.status == DeviceStatus.PENDING_OFFLINE:
+                    if time_since_active > OFFLINE_THRESHOLD:
+                        device.status = DeviceStatus.OFFLINE
+                        new_status = device.status.value
+                        offline_count += 1
+                        updated_count += 1
+                        
+                        record_status_event(
+                            db,
+                            device.device_id,
+                            "offline",
+                            old_status=old_status,
+                            new_status=new_status,
+                            reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {OFFLINE_THRESHOLD}s, was pending)",
+                            details={
+                                "last_active_time": last_active_time.isoformat() if last_active_time else None,
+                                "timeout_seconds": OFFLINE_THRESHOLD,
+                                "time_since_active": time_since_active,
+                                "was_pending": True
+                            }
+                        )
+                        
+                        create_offline_alert(db, device, time_since_active, now)
+                        
+                        logger.critical(
+                            f"\n{'='*60}\n"
+                            f"[DEVICE OFFLINE] Device {device.device_id}\n"
+                            f"{'='*60}\n"
+                            f"  Status: {old_status} -> {new_status}\n"
+                            f"  Last Active: {last_active_time}\n"
+                            f"  Inactive For: {time_since_active:.1f}s\n"
+                            f"  Note: Was in PENDING_OFFLINE state\n"
+                            f"  Alert: CRITICAL alert created\n"
+                            f"{'='*60}\n"
+                        )
             
-            elif device.status == DeviceStatus.PENDING_OFFLINE:
-                if time_since_active > OFFLINE_THRESHOLD:
-                    device.status = DeviceStatus.OFFLINE
-                    new_status = device.status.value
-                    offline_count += 1
-                    updated_count += 1
-                    
-                    record_status_event(
-                        db,
-                        device.device_id,
-                        "offline",
-                        old_status=old_status,
-                        new_status=new_status,
-                        reason=f"No heartbeat for {time_since_active:.1f} seconds (timeout: {OFFLINE_THRESHOLD}s, was pending)",
-                        details={
-                            "last_active_time": last_active_time.isoformat() if last_active_time else None,
-                            "timeout_seconds": OFFLINE_THRESHOLD,
-                            "time_since_active": time_since_active,
-                            "was_pending": True
-                        }
-                    )
-                    
-                    create_offline_alert(db, device, time_since_active, now)
-                    
-                    logger.critical(
-                        f"\n{'='*60}\n"
-                        f"[DEVICE OFFLINE] Device {device.device_id}\n"
-                        f"{'='*60}\n"
-                        f"  Status: {old_status} -> {new_status}\n"
-                        f"  Last Active: {last_active_time}\n"
-                        f"  Inactive For: {time_since_active:.1f}s\n"
-                        f"  Note: Was in PENDING_OFFLINE state\n"
-                        f"  Alert: CRITICAL alert created\n"
-                        f"{'='*60}\n"
-                    )
+            if updated_count > 0:
+                db.commit()
+                updated_count = 0
+            
+            offset += DEVICE_SCAN_BATCH_SIZE
         
         expired_commands_count = expire_overdue_commands(db, now)
         
-        if updated_count > 0 or expired_commands_count > 0:
+        if expired_commands_count > 0:
             db.commit()
+        
+        if pending_count > 0 or offline_count > 0:
             if pending_count > 0:
                 print(f"[Scheduler] Marked {pending_count} devices as PENDING_OFFLINE")
             if offline_count > 0:
@@ -2168,7 +2222,7 @@ def _alert_to_dict(alert: AlertHistory) -> dict:
 
 
 class RuleEngine:
-    def __init__(self, websocket_manager: WebSocketConnectionManager = None):
+    def __init__(self, websocket_manager: "WebSocketConnectionManager" = None):
         self.websocket_manager = websocket_manager
     
     async def process_device_data(self, device_id: str, payload: dict, db: Session):
