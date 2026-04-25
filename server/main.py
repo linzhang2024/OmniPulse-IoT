@@ -11,6 +11,7 @@ from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from collections import deque
 from typing import Dict, Set, Optional, Any, List
 import os
+import sys
 import uuid
 import hashlib
 import secrets
@@ -27,8 +28,12 @@ import signal
 import enum
 import gc
 from pathlib import Path
-from typing import Optional, Any, Dict, Set
 from sqlalchemy.orm import scoped_session
+
+_server_dir = Path(__file__).resolve().parent
+_project_root = _server_dir.parent
+if str(_server_dir) not in sys.path:
+    sys.path.insert(0, str(_server_dir))
 
 logging.basicConfig(
     level=logging.INFO,
@@ -36,25 +41,49 @@ logging.basicConfig(
 )
 logger = logging.getLogger("ProtocolAdapter")
 
-from .models import (
-    Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
-    User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
-    DeviceProtocol, ProtocolType, DeviceStatusEvent,
-    AuditLog, OperationType, RiskLevel,
-    ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType,
-    DeviceCommand, Rule, RuleAction, RuleOperator, ConditionType,
-    AlertSeverity, AlertStatus, AlertHistory
-)
+try:
+    from .models import (
+        Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
+        User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
+        DeviceProtocol, ProtocolType, DeviceStatusEvent,
+        AuditLog, OperationType, RiskLevel,
+        ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType,
+        DeviceCommand, Rule, RuleAction, RuleOperator, ConditionType,
+        AlertSeverity, AlertStatus, AlertHistory
+    )
+except ImportError:
+    from models import (
+        Base, Device, DeviceStatus, DeviceData, DeviceDataHistory, CommandStatus,
+        User, UserRole, Complaint, ComplaintStatus, ComplaintReply,
+        DeviceProtocol, ProtocolType, DeviceStatusEvent,
+        AuditLog, OperationType, RiskLevel,
+        ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType,
+        DeviceCommand, Rule, RuleAction, RuleOperator, ConditionType,
+        AlertSeverity, AlertStatus, AlertHistory
+    )
 
-from .report_engine import (
-    report_engine, 
-    ScheduledReportManager,
-    REPORTS_DIR,
-    EXPORT_BATCH_SIZE,
-    DEFAULT_REPORT_RETENTION_HOURS
-)
+try:
+    from .report_engine import (
+        report_engine, 
+        ScheduledReportManager,
+        REPORTS_DIR,
+        EXPORT_BATCH_SIZE,
+        DEFAULT_REPORT_RETENTION_HOURS
+    )
+except ImportError:
+    from report_engine import (
+        report_engine, 
+        ScheduledReportManager,
+        REPORTS_DIR,
+        EXPORT_BATCH_SIZE,
+        DEFAULT_REPORT_RETENTION_HOURS
+    )
 
-DATABASE_URL = "sqlite:///./iot_devices.db"
+_static_dir = _project_root / "static"
+_templates_dir = _project_root / "templates"
+_db_path = _project_root / "iot_devices.db"
+
+DATABASE_URL = f"sqlite:///{_db_path}"
 PENDING_OFFLINE_THRESHOLD = 60
 OFFLINE_THRESHOLD = 120
 HEARTBEAT_TIMEOUT = OFFLINE_THRESHOLD
@@ -1169,11 +1198,11 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.mount("/static", StaticFiles(directory="static"), name="static")
+app.mount("/static", StaticFiles(directory=str(_static_dir)), name="static")
 
 @app.get("/")
 async def index():
-    return FileResponse("templates/index.html")
+    return FileResponse(str(_templates_dir / "index.html"))
 
 def generate_secret_key(length: int = 32) -> str:
     alphabet = string.ascii_letters + string.digits
@@ -3458,6 +3487,8 @@ def device_heartbeat(
     device.last_heartbeat = now
     device.last_seen = now
     
+    update_heartbeat_cache(device_id, now)
+    
     if device.status != DeviceStatus.ONLINE:
         device.status = DeviceStatus.ONLINE
         new_status = device.status.value
@@ -5332,3 +5363,23 @@ def delete_scheduled_report(
         "message": "Scheduled report config deleted successfully",
         "config_id": config_id
     }
+
+if __name__ == "__main__":
+    import uvicorn
+    
+    print("\n" + "="*60)
+    print("  OmniPulse-IoT Server")
+    print("="*60)
+    print(f"  Database: {DATABASE_URL}")
+    print(f"  Port: 8000")
+    print(f"  Offline Threshold: {OFFLINE_THRESHOLD}s")
+    print(f"  Check Interval: {CHECK_INTERVAL}s")
+    print(f"  Scan Batch Size: {DEVICE_SCAN_BATCH_SIZE}")
+    print("="*60 + "\n")
+    
+    uvicorn.run(
+        "server.main:app" if __package__ else "main:app",
+        host="127.0.0.1",
+        port=8000,
+        reload=False
+    )
