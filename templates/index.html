@@ -182,6 +182,122 @@
             padding: 40px;
         }
         
+        .stats-bar {
+            background: rgba(0, 0, 0, 0.3);
+            border-radius: 16px;
+            padding: 24px;
+            margin-bottom: 30px;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+            gap: 16px;
+        }
+        
+        .stat-box {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            padding: 16px;
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.03);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            transition: all 0.3s ease;
+        }
+        
+        .stat-box:hover {
+            background: rgba(255, 255, 255, 0.06);
+            transform: translateY(-2px);
+        }
+        
+        .stat-box.total {
+            border-left: 3px solid #4fc3f7;
+        }
+        
+        .stat-box.online {
+            border-left: 3px solid #4caf50;
+        }
+        
+        .stat-box.warning {
+            border-left: 3px solid #ff9800;
+        }
+        
+        .stat-box.offline {
+            border-left: 3px solid #f44336;
+        }
+        
+        .stat-box.critical {
+            border-left: 3px solid #ff5252;
+            animation: pulse-critical 2s infinite;
+        }
+        
+        .stat-box.critical .stat-value {
+            color: #ff5252;
+        }
+        
+        @keyframes pulse-critical {
+            0%, 100% { box-shadow: 0 0 0 0 rgba(255, 82, 82, 0.4); }
+            50% { box-shadow: 0 0 0 8px rgba(255, 82, 82, 0); }
+        }
+        
+        .stat-icon {
+            font-size: 28px;
+        }
+        
+        .stat-info {
+            display: flex;
+            flex-direction: column;
+        }
+        
+        .stat-value {
+            font-size: 28px;
+            font-weight: 700;
+            color: #fff;
+            line-height: 1.2;
+        }
+        
+        .stat-label {
+            font-size: 12px;
+            color: #78909c;
+            margin-top: 2px;
+        }
+        
+        .stats-update-time {
+            text-align: right;
+            font-size: 11px;
+            color: #546e7a;
+            margin-top: 12px;
+            padding-top: 12px;
+            border-top: 1px solid rgba(255, 255, 255, 0.05);
+        }
+        
+        .device-card.offline {
+            border: 2px solid rgba(244, 67, 54, 0.5);
+            background: rgba(244, 67, 54, 0.08);
+        }
+        
+        .device-card.offline .device-status {
+            background: rgba(244, 67, 54, 0.3);
+            border: 1px solid rgba(244, 67, 54, 0.5);
+            animation: pulse-offline 1.5s infinite;
+        }
+        
+        @keyframes pulse-offline {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+        
+        .device-card.pending_offline {
+            border: 2px solid rgba(255, 152, 0, 0.4);
+            background: rgba(255, 152, 0, 0.05);
+        }
+        
+        .device-card.pending_offline::before {
+            background: linear-gradient(90deg, #ff9800, #ffc107);
+        }
+        
         .devices-grid {
             display: grid;
             grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
@@ -1204,6 +1320,47 @@
                 <p>正在加载设备数据...</p>
             </div>
             
+            <div id="stats-bar" class="stats-bar" style="display: none;">
+                <div class="stats-grid">
+                    <div class="stat-box total">
+                        <div class="stat-icon">📊</div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-total">0</div>
+                            <div class="stat-label">总设备数</div>
+                        </div>
+                    </div>
+                    <div class="stat-box online">
+                        <div class="stat-icon">🟢</div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-online">0</div>
+                            <div class="stat-label">在线设备</div>
+                        </div>
+                    </div>
+                    <div class="stat-box warning">
+                        <div class="stat-icon">🟡</div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-warning">0</div>
+                            <div class="stat-label">待离线</div>
+                        </div>
+                    </div>
+                    <div class="stat-box offline">
+                        <div class="stat-icon">🔴</div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-offline">0</div>
+                            <div class="stat-label">离线设备</div>
+                        </div>
+                    </div>
+                    <div class="stat-box critical">
+                        <div class="stat-icon">⚠️</div>
+                        <div class="stat-info">
+                            <div class="stat-value" id="stat-alerts">0</div>
+                            <div class="stat-label">紧急告警</div>
+                        </div>
+                    </div>
+                </div>
+                <div class="stats-update-time" id="stats-update-time"></div>
+            </div>
+            
             <div id="devices-container" class="devices-grid" style="display: none;"></div>
         </div>
         
@@ -1465,13 +1622,28 @@
         
         function createDeviceCard(device) {
             const isOnline = device.status === 'online';
-            onlineCount += isOnline ? 1 : 0;
-            offlineCount += isOnline ? 0 : 1;
+            const isPendingOffline = device.status === 'pending_offline';
+            const isOffline = device.status === 'offline';
             
-            const statusClass = isOnline ? 'online' : 'offline';
-            const statusText = isOnline ? '在线' : '离线';
-            const btnDisabled = isOnline ? '' : 'disabled';
-            const controlDisabled = isOnline ? '' : 'disabled';
+            let statusClass = 'online';
+            let statusText = '在线';
+            let btnDisabled = '';
+            let controlDisabled = '';
+            let controlPanelStatus = '设备在线，可控制';
+            
+            if (isPendingOffline) {
+                statusClass = 'pending_offline';
+                statusText = '待离线';
+                btnDisabled = 'disabled';
+                controlDisabled = 'disabled';
+                controlPanelStatus = '设备即将离线，控制不可用';
+            } else if (isOffline) {
+                statusClass = 'offline';
+                statusText = '离线';
+                btnDisabled = 'disabled';
+                controlDisabled = 'disabled';
+                controlPanelStatus = '设备离线，控制不可用';
+            }
             
             let sensorHtml = '';
             if (device.latest_payload && Object.keys(device.latest_payload).length > 0) {
@@ -1530,7 +1702,7 @@
                     <div class="control-panel" id="control-panel-${device.device_id.replace(/-/g, '')}">
                         <div class="control-panel-header">
                             <span class="control-panel-title">🎛️ 远程控制</span>
-                            <span class="control-panel-status">${isOnline ? '设备在线，可控制' : '设备离线，控制不可用'}</span>
+                            <span class="control-panel-status">${controlPanelStatus}</span>
                         </div>
                         
                         <div class="switch-controls">
@@ -1596,10 +1768,11 @@
             `;
         }
         
-        function updateDashboard(devices) {
+        function updateDashboard(devices, stats) {
             const loadingElement = document.getElementById('loading');
             const container = document.getElementById('devices-container');
             const errorElement = document.getElementById('error-message');
+            const statsBar = document.getElementById('stats-bar');
             
             onlineCount = 0;
             offlineCount = 0;
@@ -1611,6 +1784,7 @@
                     <p>暂无设备数据，请先注册设备</p>
                 `;
                 container.style.display = 'none';
+                statsBar.style.display = 'none';
                 return;
             }
             
@@ -1618,7 +1792,43 @@
             container.style.display = 'grid';
             errorElement.classList.remove('visible');
             
+            if (stats) {
+                updateStatsBar(stats);
+            }
+            
             container.innerHTML = devices.map(device => createDeviceCard(device)).join('');
+        }
+        
+        async function fetchDeviceStats() {
+            try {
+                const response = await fetch('/devices/stats');
+                if (!response.ok) {
+                    return null;
+                }
+                return await response.json();
+            } catch (error) {
+                console.error('获取统计数据失败:', error);
+                return null;
+            }
+        }
+        
+        function updateStatsBar(stats) {
+            if (!stats) return;
+            
+            const statsBar = document.getElementById('stats-bar');
+            statsBar.style.display = 'block';
+            
+            document.getElementById('stat-total').textContent = stats.total || 0;
+            document.getElementById('stat-online').textContent = stats.online || 0;
+            document.getElementById('stat-warning').textContent = stats.pending_offline || 0;
+            document.getElementById('stat-offline').textContent = stats.offline || 0;
+            document.getElementById('stat-alerts').textContent = stats.critical_alerts || 0;
+            
+            if (stats.last_updated) {
+                const updateTime = new Date(stats.last_updated);
+                document.getElementById('stats-update-time').textContent = 
+                    `最后更新: ${updateTime.toLocaleString('zh-CN')}`;
+            }
         }
         
         function showError(message) {
@@ -1704,12 +1914,17 @@
         
         async function fetchDevices() {
             try {
-                const response = await fetch(API_URL);
-                if (!response.ok) {
-                    throw new Error(`HTTP 错误: ${response.status}`);
+                const [devicesResponse, stats] = await Promise.all([
+                    fetch(API_URL),
+                    fetchDeviceStats()
+                ]);
+                
+                if (!devicesResponse.ok) {
+                    throw new Error(`HTTP 错误: ${devicesResponse.status}`);
                 }
-                const devices = await response.json();
-                updateDashboard(devices);
+                
+                const devices = await devicesResponse.json();
+                updateDashboard(devices, stats);
             } catch (error) {
                 console.error('获取设备数据失败:', error);
             }
