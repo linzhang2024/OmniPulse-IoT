@@ -1,6 +1,7 @@
 import csv
 import io
 import os
+import sys
 import json
 import uuid
 import threading
@@ -10,6 +11,10 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional, List, Dict, Any, Generator, Tuple, Callable
 from contextlib import contextmanager
+
+_server_dir = Path(__file__).resolve().parent
+if str(_server_dir) not in sys.path:
+    sys.path.insert(0, str(_server_dir))
 
 try:
     import openpyxl
@@ -33,11 +38,18 @@ PROGRESS_UPDATE_INTERVAL_PERCENT = 10
 
 SUPPORTED_FORMATS = ["csv", "json", "excel", "xlsx"]
 
-from server.models import (
-    ReportTask, ReportTaskStatus, 
-    ScheduledReportConfig, ScheduledReportType,
-    DeviceDataHistory, Device, User
-)
+try:
+    from server.models import (
+        ReportTask, ReportTaskStatus, 
+        ScheduledReportConfig, ScheduledReportType,
+        DeviceDataHistory, Device, User
+    )
+except ImportError:
+    from models import (
+        ReportTask, ReportTaskStatus, 
+        ScheduledReportConfig, ScheduledReportType,
+        DeviceDataHistory, Device, User
+    )
 
 class ExportFileHandler:
     def __init__(self, file_path: Path, file_format: str):
