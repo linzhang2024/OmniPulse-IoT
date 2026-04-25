@@ -1,0 +1,164 @@
+2026-04-25 11:03:54,032 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:54,032 - RuleEngineV2Test - INFO - RULE ENGINE V2 TEST SUITE
+2026-04-25 11:03:54,032 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:54,032 - RuleEngineV2Test - INFO - 
+2026-04-25 11:03:54,032 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:54,034 - RuleEngineV2Test - INFO - TEST CASE 1: Simple Condition (Backward Compatible)
+2026-04-25 11:03:54,034 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:54,083 - RuleEngineV2Test - INFO - Test device created: TEST_V2_1777086234, model: MultiSensor-X1
+2026-04-25 11:03:54,118 - RuleEngineV2Test - INFO - [CreateRule] Created simple rule: High Temperature Alert
+2026-04-25 11:03:54,118 - RuleEngineV2Test - INFO -   - Condition: temperature > 40.0
+2026-04-25 11:03:54,118 - RuleEngineV2Test - INFO -   - Action: send_command
+2026-04-25 11:03:54,118 - RuleEngineV2Test - INFO -   - Command: cooling_on = auto
+2026-04-25 11:03:54,118 - RuleEngineV2Test - INFO - [Step 1] Testing 35°C (should NOT trigger)
+2026-04-25 11:03:54,122 - RuleEngineV2Test - INFO - [Step 1: PASS] 35°C did not trigger
+2026-04-25 11:03:54,122 - RuleEngineV2Test - INFO - [Step 2] Testing 45°C (should trigger)
+2026-04-25 11:03:54,122 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: High Temperature Alert (device=TEST_V2_1777086234, values={'temperature': 45.0})
+2026-04-25 11:03:54,155 - RuleEngineV2Test - INFO - Command created: f0e46197-c22f-443a-9ec6-5ec441a3e9a2 (cooling_on=auto)
+2026-04-25 11:03:54,183 - RuleEngineV2Test - INFO - [Step 2: PASS] 45°C triggered command: f0e46197-c22f-443a-9ec6-5ec441a3e9a2
+2026-04-25 11:03:54,183 - RuleEngineV2Test - INFO - [Step 3: PASS] Rule trigger_count updated
+2026-04-25 11:03:54,183 - RuleEngineV2Test - INFO - 
+[TEST CASE 1: PASS]
+2026-04-25 11:03:54,183 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:54,184 - RuleEngineV2Test - INFO - TEST CASE 2: Compound Condition (AND Logic)
+2026-04-25 11:03:54,184 - RuleEngineV2Test - INFO -   Scenario: temperature > 40 AND humidity < 30
+2026-04-25 11:03:54,184 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:54,303 - RuleEngineV2Test - INFO - Test device created: TEST_V2_1777086234, model: MultiSensor-X1
+2026-04-25 11:03:54,333 - RuleEngineV2Test - INFO - [CreateRule] Created compound rule: High Temp + Low Humidity Alert
+2026-04-25 11:03:54,333 - RuleEngineV2Test - INFO -   - Conditions: [{'metric': 'temperature', 'operator': '>', 'threshold': 40.0, 'logic': 'and'}, {'metric': 'humidity', 'operator': '<', 'threshold': 30.0, 'logic': 'and'}]
+2026-04-25 11:03:54,333 - RuleEngineV2Test - INFO -   - Action: send_command
+2026-04-25 11:03:54,333 - RuleEngineV2Test - INFO - [Step 1] Testing temp=45, humidity=50 (AND: humidity fails)
+2026-04-25 11:03:54,334 - RuleEngineV2Test - INFO - [Step 1: PASS] Did not trigger (humidity too high)
+2026-04-25 11:03:54,334 - RuleEngineV2Test - INFO - [Step 2] Testing temp=35, humidity=25 (AND: temp fails)
+2026-04-25 11:03:54,335 - RuleEngineV2Test - INFO - [Step 2: PASS] Did not trigger (temp too low)
+2026-04-25 11:03:54,335 - RuleEngineV2Test - INFO - [Step 3] Testing temp=45, humidity=25 (AND: both pass)
+2026-04-25 11:03:54,336 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: High Temp + Low Humidity Alert (device=TEST_V2_1777086234, values={'temperature': 45.0, 'humidity': 25.0})
+2026-04-25 11:03:54,365 - RuleEngineV2Test - INFO - Command created: 6b93beb2-ffe7-4102-a8dc-e26a1ebcda19 (emergency_cool=high)
+2026-04-25 11:03:54,392 - RuleEngineV2Test - INFO - [Step 3: PASS] Triggered command: 6b93beb2-ffe7-4102-a8dc-e26a1ebcda19
+2026-04-25 11:03:54,392 - RuleEngineV2Test - INFO - [Step 4: PASS] Rule trigger_count updated
+2026-04-25 11:03:54,392 - RuleEngineV2Test - INFO - 
+[TEST CASE 2: PASS]
+2026-04-25 11:03:54,393 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:54,393 - RuleEngineV2Test - INFO - TEST CASE 3: Silence Period / Storm Suppression
+2026-04-25 11:03:54,393 - RuleEngineV2Test - INFO -   Scenario: Rule triggers, then silence_seconds prevents re-trigger
+2026-04-25 11:03:54,393 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:54,515 - RuleEngineV2Test - INFO - Test device created: TEST_V2_1777086234, model: MultiSensor-X1
+2026-04-25 11:03:54,541 - RuleEngineV2Test - INFO - [CreateRule] Created simple rule: Silence Test Rule
+2026-04-25 11:03:54,541 - RuleEngineV2Test - INFO -   - Condition: temperature > 40.0
+2026-04-25 11:03:54,541 - RuleEngineV2Test - INFO -   - Action: send_command
+2026-04-25 11:03:54,541 - RuleEngineV2Test - INFO -   - Command: alert = on
+2026-04-25 11:03:54,542 - RuleEngineV2Test - INFO - [Step 1] First trigger (45°C)
+2026-04-25 11:03:54,542 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Silence Test Rule (device=TEST_V2_1777086234, values={'temperature': 45.0})
+2026-04-25 11:03:54,577 - RuleEngineV2Test - INFO - Command created: a1e79600-d5c7-4a92-8f14-13a5e2933ec0 (alert=on)
+2026-04-25 11:03:54,610 - RuleEngineV2Test - INFO - [Step 1: PASS] First trigger created command: a1e79600-d5c7-4a92-8f14-13a5e2933ec0
+2026-04-25 11:03:54,610 - RuleEngineV2Test - INFO - [Step 2] Immediate re-trigger (should be silenced)
+2026-04-25 11:03:54,611 - RuleEngineV2Test - DEBUG - Rule Silence Test Rule is in silence period, skipped
+2026-04-25 11:03:54,611 - RuleEngineV2Test - INFO - [Step 2: PASS] Silence period prevented re-trigger
+2026-04-25 11:03:54,611 - RuleEngineV2Test - INFO - [Step 3: PASS] trigger_count unchanged during silence
+2026-04-25 11:03:54,611 - RuleEngineV2Test - INFO - [Step 4] Simulating silence period expired...
+2026-04-25 11:03:54,637 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Silence Test Rule (device=TEST_V2_1777086234, values={'temperature': 55.0})
+2026-04-25 11:03:54,665 - RuleEngineV2Test - INFO - Command created: e6847a6a-7928-43b0-934b-7094c283a178 (alert=on)
+2026-04-25 11:03:54,693 - RuleEngineV2Test - INFO - [Step 4: PASS] After silence expired, triggered new command: e6847a6a-7928-43b0-934b-7094c283a178
+2026-04-25 11:03:54,694 - RuleEngineV2Test - INFO - [Step 5: PASS] trigger_count now = 2
+2026-04-25 11:03:54,694 - RuleEngineV2Test - INFO - 
+[TEST CASE 3: PASS]
+2026-04-25 11:03:54,694 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:54,694 - RuleEngineV2Test - INFO - TEST CASE 4: Metric Aliases
+2026-04-25 11:03:54,694 - RuleEngineV2Test - INFO -   Scenario: temp -> temperature, hum -> humidity
+2026-04-25 11:03:54,694 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:54,819 - RuleEngineV2Test - INFO - Test device created: TEST_V2_1777086234, model: MultiSensor-X1
+2026-04-25 11:03:54,848 - RuleEngineV2Test - INFO - [CreateRule] Created simple rule: Alias Test Rule
+2026-04-25 11:03:54,848 - RuleEngineV2Test - INFO -   - Condition: temperature > 40.0
+2026-04-25 11:03:54,848 - RuleEngineV2Test - INFO -   - Action: send_command
+2026-04-25 11:03:54,848 - RuleEngineV2Test - INFO -   - Command: cooling = on
+2026-04-25 11:03:54,848 - RuleEngineV2Test - INFO - [Step 1] Testing with 'temp' alias (should work)
+2026-04-25 11:03:54,848 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Alias Test Rule (device=TEST_V2_1777086234, values={'temperature': 45.0})
+2026-04-25 11:03:54,879 - RuleEngineV2Test - INFO - Command created: 73bcc6fb-5b8f-4b79-81bc-7cb96373e030 (cooling=on)
+2026-04-25 11:03:54,946 - RuleEngineV2Test - INFO - [Step 1: PASS] 'temp' alias matched 'temperature'
+2026-04-25 11:03:54,946 - RuleEngineV2Test - INFO - [Step 2] Testing with 'temperature' direct (should work)
+2026-04-25 11:03:54,971 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Alias Test Rule (device=TEST_V2_1777086234, values={'temperature': 45.0})
+2026-04-25 11:03:54,999 - RuleEngineV2Test - INFO - Command created: fc7827a9-e21c-4b79-9cab-b17f50115145 (cooling=on)
+2026-04-25 11:03:55,029 - RuleEngineV2Test - INFO - [Step 2: PASS] 'temperature' direct matched
+2026-04-25 11:03:55,029 - RuleEngineV2Test - INFO - [Step 3] Testing with unrelated metric (should NOT work)
+2026-04-25 11:03:55,062 - RuleEngineV2Test - INFO - [Step 3: PASS] 'humidity' did not match 'temperature'
+2026-04-25 11:03:55,063 - RuleEngineV2Test - INFO - 
+[TEST CASE 4: PASS]
+2026-04-25 11:03:55,063 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:55,063 - RuleEngineV2Test - INFO - TEST CASE 5: Multiple Rules on Same Device
+2026-04-25 11:03:55,063 - RuleEngineV2Test - INFO -   Scenario: Two rules with different thresholds
+2026-04-25 11:03:55,063 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:55,178 - RuleEngineV2Test - INFO - Test device created: TEST_V2_1777086234, model: MultiSensor-X1
+2026-04-25 11:03:55,211 - RuleEngineV2Test - INFO - [CreateRule] Created simple rule: Rule 1: > 40
+2026-04-25 11:03:55,211 - RuleEngineV2Test - INFO -   - Condition: temperature > 40.0
+2026-04-25 11:03:55,211 - RuleEngineV2Test - INFO -   - Action: send_command
+2026-04-25 11:03:55,211 - RuleEngineV2Test - INFO -   - Command: cool_low = on
+2026-04-25 11:03:55,245 - RuleEngineV2Test - INFO - [CreateRule] Created simple rule: Rule 2: > 50
+2026-04-25 11:03:55,245 - RuleEngineV2Test - INFO -   - Condition: temperature > 50.0
+2026-04-25 11:03:55,245 - RuleEngineV2Test - INFO -   - Action: send_command
+2026-04-25 11:03:55,245 - RuleEngineV2Test - INFO -   - Command: cool_high = on
+2026-04-25 11:03:55,245 - RuleEngineV2Test - INFO - [Step 1] Testing 45°C (should trigger only Rule 1)
+2026-04-25 11:03:55,245 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Rule 1: > 40 (device=TEST_V2_1777086234, values={'temperature': 45.0})
+2026-04-25 11:03:55,271 - RuleEngineV2Test - INFO - Command created: d94d680d-9602-41fe-af41-632b1d410269 (cool_low=on)
+2026-04-25 11:03:55,295 - RuleEngineV2Test - INFO - [Step 1: PASS] Only Rule 1 triggered
+2026-04-25 11:03:55,295 - RuleEngineV2Test - INFO - [Step 2] Testing 55°C (should trigger both rules)
+2026-04-25 11:03:55,319 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Rule 1: > 40 (device=TEST_V2_1777086234, values={'temperature': 55.0})
+2026-04-25 11:03:55,349 - RuleEngineV2Test - INFO - Command created: e4b0a4ba-2895-43b7-b8b0-368746d3c1b7 (cool_low=on)
+2026-04-25 11:03:55,380 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Rule 2: > 50 (device=TEST_V2_1777086234, values={'temperature': 55.0})
+2026-04-25 11:03:55,409 - RuleEngineV2Test - INFO - Command created: 091b7489-4a94-4d61-ae94-2d1d8cbfdd25 (cool_high=on)
+2026-04-25 11:03:55,436 - RuleEngineV2Test - INFO - [Step 2: PASS] Both rules triggered: {'cool_low', 'cool_high'}
+2026-04-25 11:03:55,436 - RuleEngineV2Test - INFO - 
+[TEST CASE 5: PASS]
+2026-04-25 11:03:55,436 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:55,437 - RuleEngineV2Test - INFO - TEST CASE 6: Inactive Rule
+2026-04-25 11:03:55,437 - RuleEngineV2Test - INFO -   Scenario: Inactive rule should NOT trigger
+2026-04-25 11:03:55,437 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:55,554 - RuleEngineV2Test - INFO - Test device created: TEST_V2_1777086234, model: MultiSensor-X1
+2026-04-25 11:03:55,578 - RuleEngineV2Test - INFO - [CreateRule] Created simple rule: Inactive Test Rule
+2026-04-25 11:03:55,579 - RuleEngineV2Test - INFO -   - Condition: temperature > 40.0
+2026-04-25 11:03:55,579 - RuleEngineV2Test - INFO -   - Action: send_command
+2026-04-25 11:03:55,579 - RuleEngineV2Test - INFO -   - Command: test = on
+2026-04-25 11:03:55,579 - RuleEngineV2Test - INFO - [Step 1] Inactive rule should NOT trigger
+2026-04-25 11:03:55,580 - RuleEngineV2Test - DEBUG - No active rules for device TEST_V2_1777086234
+2026-04-25 11:03:55,580 - RuleEngineV2Test - INFO - [Step 1: PASS] Inactive rule did not trigger
+2026-04-25 11:03:55,580 - RuleEngineV2Test - INFO - [Step 2] Activate rule and test again
+2026-04-25 11:03:55,618 - RuleEngineV2Test - WARNING - [RuleEngine] Rule triggered: Inactive Test Rule (device=TEST_V2_1777086234, values={'temperature': 45.0})
+2026-04-25 11:03:55,643 - RuleEngineV2Test - INFO - Command created: 61c62adb-bfd6-42dd-9607-38b52086442c (test=on)
+2026-04-25 11:03:55,675 - RuleEngineV2Test - INFO - [Step 2: PASS] Activated rule triggered
+2026-04-25 11:03:55,675 - RuleEngineV2Test - INFO - 
+[TEST CASE 6: PASS]
+2026-04-25 11:03:55,675 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:55,675 - RuleEngineV2Test - INFO - TEST CASE 7: Webhook Configuration
+2026-04-25 11:03:55,675 - RuleEngineV2Test - INFO -   Scenario: Rule with webhook URL configured
+2026-04-25 11:03:55,675 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:55,781 - RuleEngineV2Test - INFO - Test device created: TEST_V2_1777086234, model: MultiSensor-X1
+2026-04-25 11:03:55,810 - RuleEngineV2Test - INFO - [CreateRule] Created simple rule: Webhook Test Rule
+2026-04-25 11:03:55,810 - RuleEngineV2Test - INFO -   - Condition: temperature > 40.0
+2026-04-25 11:03:55,810 - RuleEngineV2Test - INFO -   - Action: notify
+2026-04-25 11:03:55,844 - RuleEngineV2Test - INFO - [Step 1: PASS] Webhook config stored correctly
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - [Step 2: PASS] Webhook config retrieved from DB
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - 
+[TEST CASE 7: PASS]
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - 
+============================================================
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - TEST SUMMARY
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - ============================================================
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO -   [PASS] Test 1: Simple Condition
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO -   [PASS] Test 2: Compound Condition (AND)
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO -   [PASS] Test 3: Silence Mechanism
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO -   [PASS] Test 4: Metric Aliases
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO -   [PASS] Test 5: Multiple Rules
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO -   [PASS] Test 6: Inactive Rule
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO -   [PASS] Test 7: Webhook Config
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - 
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - Total: 7 tests
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - Passed: 7
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - Failed: 0
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - 
+2026-04-25 11:03:55,845 - RuleEngineV2Test - INFO - [ALL TESTS PASSED]

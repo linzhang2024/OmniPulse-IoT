@@ -42,7 +42,7 @@ from .models import (
     DeviceProtocol, ProtocolType, DeviceStatusEvent,
     AuditLog, OperationType, RiskLevel,
     ReportTask, ReportTaskStatus, ScheduledReportConfig, ScheduledReportType,
-    DeviceCommand, Rule, RuleAction, RuleOperator
+    DeviceCommand, Rule, RuleAction, RuleOperator, ConditionType
 )
 
 from .report_engine import (
@@ -1830,84 +1830,355 @@ class CommandAck(BaseModel):
     error_message: str = None
     client_msg_id: str = None
 
-class RuleCreate(BaseModel):
-    rule_name: str
-    device_id: str
+class ConditionModel(BaseModel):
     metric: str
     operator: str
     threshold: float
+    logic: str = "and"
+
+class RuleCreate(BaseModel):
+    rule_name: str
+    device_id: str
+    
+    condition_type: str = "simple"
+    
+    metric: str = None
+    operator: str = None
+    threshold: float = None
+    
+    conditions: List[ConditionModel] = None
+    condition_expr: str = None
+    
     action: str
     command_type: str = None
     command_value: str = None
+    
+    silence_seconds: int = 60
+    
+    webhook_url: str = None
+    webhook_method: str = "POST"
+    webhook_headers: dict = None
+    webhook_body_template: dict = None
+    
     description: str = None
     is_active: bool = True
+
+MAX_ALERT_HISTORY = 100
+WEBHOOK_TIMEOUT = 5
+WEBHOOK_MAX_RETRIES = 2
+
+_alert_history = deque(maxlen=MAX_ALERT_HISTORY)
+_alert_lock = threading.Lock()
+_operator_map = {
+    ">": RuleOperator.GT,
+    "<": RuleOperator.LT,
+    "==": RuleOperator.EQ,
+    ">=": RuleOperator.GE,
+    "<=": RuleOperator.LE,
+    "!=": RuleOperator.NE,
+    "gt": RuleOperator.GT,
+    "lt": RuleOperator.LT,
+    "eq": RuleOperator.EQ,
+    "ge": RuleOperator.GE,
+    "le": RuleOperator.LE,
+    "ne": RuleOperator.NE,
+}
+_operator_funcs = {
+    RuleOperator.GT: lambda v, t: v > t,
+    RuleOperator.LT: lambda v, t: v < t,
+    RuleOperator.EQ: lambda v, t: v == t,
+    RuleOperator.GE: lambda v, t: v >= t,
+    RuleOperator.LE: lambda v, t: v <= t,
+    RuleOperator.NE: lambda v, t: v != t,
+}
+_metric_aliases = {
+    "temperature": ["temp"],
+    "humidity": ["hum"],
+    "power": ["pwr"],
+    "voltage": ["volt", "v"],
+    "current": ["amp", "i"],
+}
+
+
+def _get_metric(payload: dict, metric: str) -> Optional[float]:
+    if metric in payload:
+        val = payload[metric]
+        if isinstance(val, (int, float)):
+            return float(val)
+    aliases = _metric_aliases.get(metric, [])
+    for alias in aliases:
+        if alias in payload:
+            val = payload[alias]
+            if isinstance(val, (int, float)):
+                return float(val)
+    return None
+
+
+def _eval_simple(payload: dict, metric: str, op: RuleOperator, threshold: float) -> tuple[bool, Optional[float]]:
+    val = _get_metric(payload, metric)
+    if val is None:
+        return False, None
+    func = _operator_funcs.get(op)
+    if not func:
+        return False, val
+    return func(val, threshold), val
+
+
+def _eval_compound(payload: dict, conditions: list) -> tuple[bool, dict]:
+    if not conditions:
+        return False, {}
+    
+    matched_values = {}
+    result = True
+    logic_op = conditions[0].get("logic", "and") if len(conditions) > 0 else "and"
+    
+    for cond in conditions:
+        metric = cond.get("metric")
+        op_str = cond.get("operator")
+        threshold = cond.get("threshold")
+        
+        if not metric or op_str is None or threshold is None:
+            continue
+        
+        op = _operator_map.get(op_str.lower()) if isinstance(op_str, str) else op_str
+        if not op:
+            continue
+        
+        val = _get_metric(payload, metric)
+        if val is None:
+            matched_values[metric] = None
+            if logic_op == "and":
+                result = False
+            continue
+        
+        func = _operator_funcs.get(op)
+        if not func:
+            matched_values[metric] = val
+            if logic_op == "and":
+                result = False
+            continue
+        
+        cond_result = func(val, threshold)
+        matched_values[metric] = val
+        
+        if logic_op == "and":
+            result = result and cond_result
+        elif logic_op == "or":
+            result = result or cond_result
+    
+    return result, matched_values
+
+
+def _check_silence(rule: Rule, now: datetime) -> bool:
+    if rule.last_triggered_at is None:
+        return False
+    silence_seconds = rule.silence_seconds or 60
+    elapsed = (now - rule.last_triggered_at).total_seconds()
+    return elapsed < silence_seconds
+
+
+def _build_alert_event(
+    rule: Rule,
+    device: Device,
+    matched_values: dict,
+    action_result: dict
+) -> dict:
+    now = datetime.utcnow()
+    return {
+        "id": str(uuid.uuid4()),
+        "type": "rule_alert",
+        "rule_id": rule.id,
+        "rule_name": rule.rule_name,
+        "device_id": rule.device_id,
+        "device_model": device.model,
+        "matched_values": matched_values,
+        "action": rule.action.value,
+        "action_result": action_result,
+        "triggered_at": now.isoformat(),
+        "timestamp": int(now.timestamp() * 1000)
+    }
+
+
+def _add_alert_history(alert: dict):
+    with _alert_lock:
+        _alert_history.append(alert)
+
+
+def get_recent_alerts(limit: int = 50) -> list:
+    with _alert_lock:
+        return list(_alert_history)[-limit:]
+
+
+async def _send_webhook(rule: Rule, alert: dict) -> bool:
+    if not rule.webhook_url:
+        return False
+    
+    try:
+        import httpx
+    except ImportError:
+        logger.warning(f"[RuleEngine] httpx not installed, webhook skipped for rule {rule.id}")
+        return False
+    
+    url = rule.webhook_url
+    method = (rule.webhook_method or "POST").upper()
+    headers = rule.webhook_headers or {}
+    headers.setdefault("Content-Type", "application/json")
+    
+    if rule.webhook_body_template:
+        body = dict(rule.webhook_body_template)
+        for key, value in alert.items():
+            placeholder = f"{{{key}}}"
+            for bk, bv in body.items():
+                if isinstance(bv, str) and placeholder in bv:
+                    body[bk] = bv.replace(placeholder, str(value) if value is not None else "")
+        body["alert"] = alert
+    else:
+        body = {
+            "event_type": "rule_alert",
+            "rule_id": rule.id,
+            "rule_name": rule.rule_name,
+            "device_id": rule.device_id,
+            "alert": alert,
+            "timestamp": datetime.utcnow().isoformat()
+        }
+    
+    last_error = None
+    for attempt in range(WEBHOOK_MAX_RETRIES + 1):
+        try:
+            async with httpx.AsyncClient(timeout=WEBHOOK_TIMEOUT) as client:
+                if method == "GET":
+                    resp = await client.get(url, params=body, headers=headers)
+                else:
+                    resp = await client.request(method, url, json=body, headers=headers)
+                
+                if 200 <= resp.status_code < 300:
+                    logger.info(f"[RuleEngine] Webhook sent successfully for rule {rule.id}, status={resp.status_code}")
+                    return True
+                else:
+                    logger.warning(f"[RuleEngine] Webhook returned non-2xx status {resp.status_code} for rule {rule.id}")
+                    last_error = f"HTTP {resp.status_code}"
+        except Exception as e:
+            last_error = str(e)
+            logger.warning(f"[RuleEngine] Webhook attempt {attempt+1} failed for rule {rule.id}: {e}")
+        
+        if attempt < WEBHOOK_MAX_RETRIES:
+            await asyncio.sleep(0.5 * (attempt + 1))
+    
+    logger.error(f"[RuleEngine] Webhook failed after {WEBHOOK_MAX_RETRIES + 1} attempts for rule {rule.id}: {last_error}")
+    return False
+
 
 class RuleEngine:
     def __init__(self, websocket_manager: WebSocketConnectionManager = None):
         self.websocket_manager = websocket_manager
     
-    def evaluate_operator(self, value: float, operator: RuleOperator, threshold: float) -> bool:
-        if operator == RuleOperator.GT:
-            return value > threshold
-        elif operator == RuleOperator.LT:
-            return value < threshold
-        elif operator == RuleOperator.EQ:
-            return value == threshold
-        elif operator == RuleOperator.GE:
-            return value >= threshold
-        elif operator == RuleOperator.LE:
-            return value <= threshold
-        elif operator == RuleOperator.NE:
-            return value != threshold
-        return False
-    
-    def get_metric_value(self, payload: dict, metric: str) -> Optional[float]:
-        if metric in payload:
-            value = payload[metric]
-            if isinstance(value, (int, float)):
-                return float(value)
-        if metric == "temperature" and "temp" in payload:
-            value = payload["temp"]
-            if isinstance(value, (int, float)):
-                return float(value)
-        if metric == "humidity" and "hum" in payload:
-            value = payload["hum"]
-            if isinstance(value, (int, float)):
-                return float(value)
-        return None
-    
-    def _print_alert_banner(self, rule: Rule, value: float):
-        print("\n" + "="*80)
-        print(f"  [RULE ALERT] 规则触发: {rule.rule_name}")
-        print("="*80)
-        print(f"  设备 ID: {rule.device_id}")
-        print(f"  监控指标: {rule.metric}")
-        print(f"  当前值: {value}")
-        print(f"  条件: {rule.metric} {rule.operator.value} {rule.threshold}")
-        print(f"  触发动作: {rule.action.value}")
-        if rule.action == RuleAction.SEND_COMMAND:
-            print(f"  下发指令: {rule.command_type} = {rule.command_value}")
-        print("="*80 + "\n")
-        logger.warning(f"[RuleEngine] Rule '{rule.rule_name}' triggered for device {rule.device_id}: {rule.metric}={value} {rule.operator.value} {rule.threshold}")
-    
-    async def execute_action(self, rule: Rule, device: Device, value: float, db: Session):
-        self._print_alert_banner(rule, value)
+    async def process_device_data(self, device_id: str, payload: dict, db: Session):
+        rules = db.query(Rule).filter(
+            Rule.device_id == device_id,
+            Rule.is_active == True
+        ).all()
         
-        if rule.action == RuleAction.SEND_COMMAND:
-            await self._execute_send_command(rule, device, db)
-        elif rule.action == RuleAction.NOTIFY:
-            await self._execute_notify(rule, device, value, db)
+        if not rules:
+            return
         
-        rule.triggered_at = datetime.utcnow()
-        rule.trigger_count = (rule.trigger_count or 0) + 1
-        db.commit()
-    
-    async def _execute_send_command(self, rule: Rule, device: Device, db: Session):
-        if not rule.command_type:
-            logger.error(f"[RuleEngine] Rule '{rule.rule_name}' has action SEND_COMMAND but no command_type specified")
+        device = db.query(Device).filter(Device.device_id == device_id).first()
+        if not device:
+            logger.error(f"[RuleEngine] Device {device_id} not found")
             return
         
         now = datetime.utcnow()
+        triggered_count = 0
+        
+        for rule in rules:
+            if _check_silence(rule, now):
+                logger.debug(f"[RuleEngine] Rule {rule.id} is in silence period, skipped")
+                continue
+            
+            is_triggered = False
+            matched_values = {}
+            
+            if rule.condition_type == ConditionType.COMPOUND and rule.conditions:
+                is_triggered, matched_values = _eval_compound(payload, rule.conditions)
+            elif rule.metric and rule.operator and rule.threshold is not None:
+                is_triggered, val = _eval_simple(payload, rule.metric, rule.operator, rule.threshold)
+                if val is not None:
+                    matched_values[rule.metric] = val
+            
+            if not is_triggered:
+                continue
+            
+            action_result = await self._execute_action(rule, device, matched_values, db, now)
+            
+            rule.last_triggered_at = now
+            rule.triggered_at = now
+            rule.trigger_count = (rule.trigger_count or 0) + 1
+            db.commit()
+            
+            alert = _build_alert_event(rule, device, matched_values, action_result)
+            _add_alert_history(alert)
+            
+            if self.websocket_manager:
+                await self.websocket_manager.send_to_frontend({
+                    "type": "alert_center",
+                    "event": alert
+                })
+            
+            if rule.action == RuleAction.NOTIFY and rule.webhook_url:
+                await _send_webhook(rule, alert)
+            
+            triggered_count += 1
+            logger.warning(f"[RuleEngine] Rule triggered: {rule.rule_name} (device={device_id})")
+        
+        if triggered_count > 0:
+            logger.info(f"[RuleEngine] Processed {triggered_count} triggered rules for device {device_id}")
+    
+    async def _execute_action(
+        self, 
+        rule: Rule, 
+        device: Device, 
+        matched_values: dict, 
+        db: Session,
+        now: datetime
+    ) -> dict:
+        result = {"success": False}
+        
+        print("\n" + "="*80)
+        print(f"  [RULE ALERT] {rule.rule_name}")
+        print("="*80)
+        print(f"  Device: {rule.device_id}")
+        print(f"  Values: {matched_values}")
+        print(f"  Action: {rule.action.value}")
+        if rule.action == RuleAction.SEND_COMMAND:
+            print(f"  Command: {rule.command_type} = {rule.command_value}")
+        if rule.webhook_url:
+            print(f"  Webhook: {rule.webhook_url}")
+        print("="*80 + "\n")
+        
+        if rule.action == RuleAction.SEND_COMMAND:
+            cmd_result = await self._send_command(rule, device, db, now)
+            result["command"] = cmd_result
+            result["success"] = cmd_result.get("success", False)
+        
+        elif rule.action == RuleAction.NOTIFY:
+            result["success"] = True
+            result["notification"] = {
+                "sent_to_websocket": self.websocket_manager is not None,
+                "webhook_configured": bool(rule.webhook_url)
+            }
+        
+        return result
+    
+    async def _send_command(
+        self, 
+        rule: Rule, 
+        device: Device, 
+        db: Session,
+        now: datetime
+    ) -> dict:
+        if not rule.command_type:
+            logger.error(f"[RuleEngine] Rule '{rule.rule_name}' has SEND_COMMAND but no command_type")
+            return {"success": False, "error": "missing_command_type"}
+        
         expires_at = now + timedelta(seconds=COMMAND_TTL_SECONDS)
         
         command = DeviceCommand(
@@ -1918,28 +2189,23 @@ class RuleEngine:
             status=CommandStatus.PENDING,
             ttl_seconds=COMMAND_TTL_SECONDS,
             expires_at=expires_at,
-            reason=f"Auto-triggered by rule: {rule.rule_name}",
+            reason=f"Rule: {rule.rule_name}",
             source="rule_engine"
         )
         db.add(command)
         
-        if device.pending_commands is None:
-            device.pending_commands = []
-        
-        pending_command = {
+        pending_list = device.pending_commands or []
+        pending_list.append({
             "id": command.id,
             "command": rule.command_type,
             "value": rule.command_value,
             "status": CommandStatus.PENDING.value,
             "created_at": now.isoformat(),
-            "delivered_at": None,
             "reason": command.reason
-        }
-        device.pending_commands.append(pending_command)
+        })
+        device.pending_commands = pending_list
         
         db.commit()
-        
-        logger.info(f"[RuleEngine] Created command '{rule.command_type}' for device {rule.device_id} (id={command.id})")
         
         if self.websocket_manager:
             await self.websocket_manager.send_to_device(
@@ -1951,58 +2217,15 @@ class RuleEngine:
                     "value": rule.command_value
                 }
             )
-    
-    async def _execute_notify(self, rule: Rule, device: Device, value: float, db: Session):
-        notification = {
-            "type": "rule_alert",
-            "rule_id": rule.id,
-            "rule_name": rule.rule_name,
-            "device_id": rule.device_id,
-            "metric": rule.metric,
-            "value": value,
-            "operator": rule.operator.value,
-            "threshold": rule.threshold,
-            "triggered_at": datetime.utcnow().isoformat()
+        
+        logger.info(f"[RuleEngine] Command created: {command.id} ({rule.command_type}={rule.command_value})")
+        
+        return {
+            "success": True,
+            "command_id": command.id,
+            "command_type": rule.command_type,
+            "command_value": rule.command_value
         }
-        
-        logger.info(f"[RuleEngine] Sending notification for rule '{rule.rule_name}'")
-        
-        if self.websocket_manager:
-            await self.websocket_manager.send_to_frontend(notification)
-    
-    async def process_device_data(self, device_id: str, payload: dict, db: Session):
-        rules = db.query(Rule).filter(
-            Rule.device_id == device_id,
-            Rule.is_active == True
-        ).all()
-        
-        if not rules:
-            logger.debug(f"[RuleEngine] No active rules for device {device_id}")
-            return
-        
-        device = db.query(Device).filter(Device.device_id == device_id).first()
-        if not device:
-            logger.error(f"[RuleEngine] Device {device_id} not found")
-            return
-        
-        triggered_rules = []
-        
-        for rule in rules:
-            metric_value = self.get_metric_value(payload, rule.metric)
-            
-            if metric_value is None:
-                logger.debug(f"[RuleEngine] Metric '{rule.metric}' not found in payload for device {device_id}")
-                continue
-            
-            if self.evaluate_operator(metric_value, rule.operator, rule.threshold):
-                triggered_rules.append((rule, metric_value))
-                logger.info(f"[RuleEngine] Rule '{rule.rule_name}' matched for device {device_id}: {rule.metric}={metric_value} {rule.operator.value} {rule.threshold}")
-        
-        for rule, value in triggered_rules:
-            await self.execute_action(rule, device, value, db)
-        
-        if triggered_rules:
-            logger.info(f"[RuleEngine] Processed {len(triggered_rules)} triggered rules for device {device_id}")
 
 class WebSocketConnectionManager:
     def __init__(self):
@@ -2417,12 +2640,19 @@ def serialize_rule(rule: Rule) -> dict:
         "id": rule.id,
         "rule_name": rule.rule_name,
         "device_id": rule.device_id,
+        "condition_type": rule.condition_type.value if rule.condition_type else "simple",
         "metric": rule.metric,
-        "operator": rule.operator.value,
+        "operator": rule.operator.value if rule.operator else None,
         "threshold": rule.threshold,
+        "conditions": rule.conditions,
+        "condition_expr": rule.condition_expr,
         "action": rule.action.value,
         "command_type": rule.command_type,
         "command_value": rule.command_value,
+        "silence_seconds": rule.silence_seconds,
+        "last_triggered_at": rule.last_triggered_at.isoformat() if rule.last_triggered_at else None,
+        "webhook_url": rule.webhook_url,
+        "webhook_method": rule.webhook_method,
         "is_active": rule.is_active,
         "description": rule.description,
         "created_at": rule.created_at.isoformat() if rule.created_at else None,
@@ -2449,14 +2679,6 @@ def create_rule(
         )
     
     try:
-        operator = parse_operator(rule_data.operator)
-    except ValueError as e:
-        raise HTTPException(
-            status_code=400,
-            detail=str(e)
-        )
-    
-    try:
         action = parse_action(rule_data.action)
     except ValueError as e:
         raise HTTPException(
@@ -2470,16 +2692,45 @@ def create_rule(
             detail="command_type is required when action is SEND_COMMAND"
         )
     
+    condition_type_str = rule_data.condition_type.lower()
+    if condition_type_str == "compound":
+        condition_type = ConditionType.COMPOUND
+    else:
+        condition_type = ConditionType.SIMPLE
+    
+    operator = None
+    if condition_type == ConditionType.SIMPLE:
+        if rule_data.operator:
+            try:
+                operator = parse_operator(rule_data.operator)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=str(e)
+                )
+    
+    conditions_json = None
+    if rule_data.conditions:
+        conditions_json = [c.model_dump() for c in rule_data.conditions]
+    
     rule = Rule(
         id=str(uuid.uuid4()),
         rule_name=rule_data.rule_name,
         device_id=rule_data.device_id,
+        condition_type=condition_type,
         metric=rule_data.metric,
         operator=operator,
         threshold=rule_data.threshold,
+        conditions=conditions_json,
+        condition_expr=rule_data.condition_expr,
         action=action,
         command_type=rule_data.command_type,
         command_value=rule_data.command_value,
+        silence_seconds=rule_data.silence_seconds or 60,
+        webhook_url=rule_data.webhook_url,
+        webhook_method=rule_data.webhook_method or "POST",
+        webhook_headers=rule_data.webhook_headers,
+        webhook_body_template=rule_data.webhook_body_template,
         is_active=rule_data.is_active,
         description=rule_data.description
     )
@@ -2488,7 +2739,7 @@ def create_rule(
     db.commit()
     db.refresh(rule)
     
-    logger.info(f"[RuleEngine] Created rule '{rule.rule_name}' for device {rule.device_id}")
+    logger.info(f"[RuleEngine] Created rule '{rule.rule_name}' for device {rule.device_id}, type={condition_type.value}")
     
     return serialize_rule(rule)
 
@@ -2578,6 +2829,133 @@ def delete_rule(
         "rule_id": rule_id,
         "rule_name": rule_name
     }
+
+@app.get("/alerts")
+def get_alerts(
+    limit: int = Query(50, ge=1, le=200),
+    device_id: str = Query(None),
+    action: str = Query(None),
+    x_user_id: str = Header(None, alias="X-User-ID"),
+):
+    alerts = get_recent_alerts(limit * 2)
+    
+    if device_id:
+        alerts = [a for a in alerts if a.get("device_id") == device_id]
+    
+    if action:
+        action_lower = action.lower()
+        alerts = [a for a in alerts if a.get("action") == action_lower]
+    
+    return {
+        "alerts": alerts[-limit:],
+        "count": len(alerts[-limit:]),
+        "total_available": len(alerts)
+    }
+
+@app.delete("/alerts")
+def clear_alerts(
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    db: Session = Depends(get_db)
+):
+    if x_user_id:
+        require_staff_or_admin(x_user_id, db)
+    
+    with _alert_lock:
+        _alert_history.clear()
+    
+    logger.info(f"[AlertCenter] Alert history cleared by user {x_user_id}")
+    
+    return {
+        "message": "Alert history cleared successfully"
+    }
+
+@app.put("/rules/{rule_id}")
+def update_rule(
+    rule_id: str,
+    rule_data: RuleCreate,
+    x_user_id: str = Header(None, alias="X-User-ID"),
+    x_real_ip: str = Header(None, alias="X-Real-IP"),
+    db: Session = Depends(get_db)
+):
+    rule = db.query(Rule).filter(Rule.id == rule_id).first()
+    
+    if not rule:
+        raise HTTPException(
+            status_code=404,
+            detail="Rule not found"
+        )
+    
+    device = db.query(Device).filter(
+        Device.device_id == rule_data.device_id
+    ).first()
+    
+    if not device:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Device {rule_data.device_id} not found"
+        )
+    
+    try:
+        action = parse_action(rule_data.action)
+    except ValueError as e:
+        raise HTTPException(
+            status_code=400,
+            detail=str(e)
+        )
+    
+    if action == RuleAction.SEND_COMMAND and not rule_data.command_type:
+        raise HTTPException(
+            status_code=400,
+            detail="command_type is required when action is SEND_COMMAND"
+        )
+    
+    condition_type_str = rule_data.condition_type.lower()
+    if condition_type_str == "compound":
+        condition_type = ConditionType.COMPOUND
+    else:
+        condition_type = ConditionType.SIMPLE
+    
+    operator = None
+    if condition_type == ConditionType.SIMPLE:
+        if rule_data.operator:
+            try:
+                operator = parse_operator(rule_data.operator)
+            except ValueError as e:
+                raise HTTPException(
+                    status_code=400,
+                    detail=str(e)
+                )
+    
+    conditions_json = None
+    if rule_data.conditions:
+        conditions_json = [c.model_dump() for c in rule_data.conditions]
+    
+    rule.rule_name = rule_data.rule_name
+    rule.device_id = rule_data.device_id
+    rule.condition_type = condition_type
+    rule.metric = rule_data.metric
+    rule.operator = operator
+    rule.threshold = rule_data.threshold
+    rule.conditions = conditions_json
+    rule.condition_expr = rule_data.condition_expr
+    rule.action = action
+    rule.command_type = rule_data.command_type
+    rule.command_value = rule_data.command_value
+    rule.silence_seconds = rule_data.silence_seconds or 60
+    rule.webhook_url = rule_data.webhook_url
+    rule.webhook_method = rule_data.webhook_method or "POST"
+    rule.webhook_headers = rule_data.webhook_headers
+    rule.webhook_body_template = rule_data.webhook_body_template
+    rule.is_active = rule_data.is_active
+    rule.description = rule_data.description
+    rule.updated_at = datetime.utcnow()
+    
+    db.commit()
+    db.refresh(rule)
+    
+    logger.info(f"[RuleEngine] Updated rule '{rule.rule_name}' (id={rule_id})")
+    
+    return serialize_rule(rule)
 
 @app.delete("/devices/{device_id}/history")
 def clear_device_history(

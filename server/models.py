@@ -291,6 +291,10 @@ class RuleOperator(enum.Enum):
     LE = "<="
     NE = "!="
 
+class ConditionType(enum.Enum):
+    SIMPLE = "simple"
+    COMPOUND = "compound"
+
 class Rule(Base):
     __tablename__ = "rules"
     
@@ -298,17 +302,30 @@ class Rule(Base):
     rule_name = Column(String(255), nullable=False, index=True)
     device_id = Column(String(64), ForeignKey("devices.device_id"), nullable=False, index=True)
     
-    metric = Column(String(64), nullable=False)
-    operator = Column(Enum(RuleOperator), nullable=False)
-    threshold = Column(Float, nullable=False)
+    condition_type = Column(Enum(ConditionType), default=ConditionType.SIMPLE)
+    
+    metric = Column(String(64), nullable=True)
+    operator = Column(Enum(RuleOperator), nullable=True)
+    threshold = Column(Float, nullable=True)
+    
+    condition_expr = Column(String(1000), nullable=True)
+    conditions = Column(JSON, nullable=True)
     
     action = Column(Enum(RuleAction), nullable=False)
     
     command_type = Column(String(64), nullable=True)
     command_value = Column(String(255), nullable=True)
     
+    silence_seconds = Column(Integer, default=60)
+    last_triggered_at = Column(DateTime, nullable=True)
+    
+    webhook_url = Column(String(500), nullable=True)
+    webhook_method = Column(String(10), default="POST")
+    webhook_headers = Column(JSON, nullable=True)
+    webhook_body_template = Column(JSON, nullable=True)
+    
     is_active = Column(Boolean, default=True, index=True)
-    description = Column(String(500), nullable=True)
+    description = Column(String(1000), nullable=True)
     
     created_at = Column(DateTime, default=datetime.utcnow, index=True)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
